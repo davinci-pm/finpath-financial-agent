@@ -1,0 +1,153 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * FinPath Design Token V1（对齐《FinPath_MVP_Spike技术设计与开发手册》§6.2）
+ * 页面背景 #F6F7F3 · 卡片 #FFFFFF · 主文字 #18312D · 辅助文字 #6E7B77
+ * 主色 #276B5D · 选中背景 #E7F2EE · 警示 #D7953F · 卡片圆角 18px · 控件圆角 12px
+ */
+:root {
+  /* 色板 */
+  --background: #f6f7f3;
+  --foreground: #18312d;
+
+  --card: #ffffff;
+  --card-foreground: #18312d;
+
+  --popover: #ffffff;
+  --popover-foreground: #18312d;
+
+  --primary: #276b5d;
+  --primary-foreground: #ffffff;
+  --primary-hover: #1f5a4e;
+  --primary-soft: #e7f2ee;
+
+  --secondary: #e7f2ee;
+  --secondary-foreground: #18312d;
+
+  --muted: #eef2ef;
+  --muted-foreground: #6e7b77;
+
+  --accent: #e7f2ee;
+  --accent-foreground: #18312d;
+
+  --destructive: #c65b5b;
+  --destructive-foreground: #ffffff;
+
+  --warning: #d7953f;
+  --warning-soft: #fff4de;
+
+  --border: #dde6e2;
+  --input: #dde6e2;
+  --ring: #276b5d;
+
+  /* 圆角：控件 12px，卡片 18px */
+  --radius: 0.75rem;
+  --radius-card: 1.125rem;
+
+  /* 阴影 */
+  --shadow-card: 0 8px 28px rgba(24, 49, 45, 0.05);
+
+  /* 图表（仅资产结构/进度，非行情） */
+  --chart-1: #276b5d;
+  --chart-2: #6e9e8e;
+  --chart-3: #d7953f;
+  --chart-4: #8fa8a0;
+  --chart-5: #c65b5b;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-soft: var(--primary-soft);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-2xl: var(--radius-card);
+
+  --shadow-card: var(--shadow-card);
+
+  --font-sans:
+    "PingFang SC", "HarmonyOS Sans SC", "Noto Sans SC", ui-sans-serif,
+    system-ui, -apple-system, sans-serif;
+  --font-number: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html {
+    font-family: var(--font-sans);
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* 数字字体：金额、比例、日期等 */
+  .font-number {
+    font-family: var(--font-number);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* 主标题 36—40px，字重 650—700 */
+  .page-title {
+    @apply text-4xl font-bold tracking-tight;
+    font-size: 2.25rem; /* 36px */
+    line-height: 1.2;
+  }
+
+  /* 模块标题 20—24px */
+  .section-title {
+    @apply text-xl font-semibold;
+  }
+
+  /* 正文 16—17px，辅助文字最小 14px */
+  .text-body {
+    @apply text-base;
+  }
+
+  .text-body-lg {
+    @apply text-[17px];
+  }
+
+  .text-helper {
+    @apply text-sm text-muted-foreground;
+  }
+}
