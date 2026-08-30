@@ -1,19 +1,30 @@
 "use client";
 
-import { use, useMemo, useState } from "react";
+import { use, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, Pencil, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ClarificationCard } from "@/components/finpath/clarification-card";
-import { MOCK_QUESTIONS, MOCK_SESSION } from "@/lib/mock-data";
-import type { DiagnosisSession } from "@/lib/types";
+import { ErrorState } from "@/components/finpath/error-state";
+import { SkeletonState } from "@/components/finpath/skeleton-state";
+import {
+  answerDiagnosis,
+  fetchDiagnosis,
+  generatePlan,
+} from "@/lib/api-client";
+import type { ClarificationQuestion, DiagnosisRecord } from "@/lib/types";
+
+const formatAmount = (min?: string, max?: string) => {
+  if (min && max) return `约 ¥${Number(min).toLocaleString("zh-CN")} ～ ¥${Number(max).toLocaleString("zh-CN")}`;
+  if (min) return `约 ¥${Number(min).toLocaleString("zh-CN")}`;
+  return "待确认";
+};
 
 /**
- * P02 AI 澄清与条件确认页（未登录简化框架）
- * 一次只确认一个关键条件；返回修改不丢失答案；右侧实时汇总当前情况。
- * 参考：P02-clarification.png
+ * P02 AI 澄清与条件确认页（AI 诊断链路）
+ * 数据来自 /api/diagnosis/:id；一次只问一个问题；完成后自动生成行动路径。
  */
 export default function DiagnosisPage({
   params,
@@ -22,50 +33,247 @@ export default function DiagnosisPage({
 }) {
   const { sessionId } = use(params);
   const router = useRouter();
-  const searchParams = useSearchParams();
+  const [session, setSession] = useState<DiagnosisRecord | null>(null);
+  const [question, setQuestion] = useState<ClarificationQuestion | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const session: DiagnosisSession = useMemo(
-    () => ({ ...MOCK_SESSION, id: sessionId, rawQuestion: searchParams.get("q") ?? MOCK_SESSION.rawQuestion }),
-    [sessionId, searchParams],
-  );
+  const reload = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await fetchDiagnosis(sessionId);
+      setSession(data.session);
+      setQuestion(data.question);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "加载失败");
+    } finally {
+      setLoading(false);
+    }
+  }, [sessionId]);
 
-  const [step, setStep] = useState(0);
-  const [answers, setAnswers] = useState<Record<string, string>>(MOCK_SESSION.answers);
-  const question = MOCK_QUESTIONS[Math.min(step, MOCK_QUESTIONS.length - 1)];
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await fetchDiagnosis(sessionId);
+        if (cancelled) return;
+        setSession(data.session);
+        setQuestion(data.question);
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : "加载失败");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
 
-  const confirmedCount = useMemo(
-    () => Object.values(answers).filter(Boolean).length + 2, // 金额 + 目标固定已确认
-    [answers],
-  );
-
-  const handleAnswer = (value: string) => {
-    setAnswers((prev) => ({ ...prev, [question.key]: value }));
-    if (step < MOCK_QUESTIONS.length - 1) {
-      setStep(step + 1);
-    } else {
-      router.push("/plans/demo-plan");
+  const goGenerate = async () => {
+    setSubmitting(true);
+    setError(null);
+    try {
+      const { plan } = await generatePlan(sessionId);
+      router.push(`/plans/${plan.id}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "计划生成失败，请重试");
+      setSubmitting(false);
     }
   };
 
-  const handleSkip = () => {
-    if (step < MOCK_QUESTIONS.length - 1) {
-      setStep(step + 1);
-    } else {
-      router.push("/plans/demo-plan");
+  const handleAnswer = async (key: string, value: string) => {
+    setSubmitting(true);
+    setError(null);
+    try {
+      const data = await answerDiagnosis(sessionId, key, value);
+      setSession(data.session);
+      setQuestion(data.question);
+      if (data.completed) {
+        await goGenerate();
+        return;
+      }
+      setSubmitting(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "提交失败，请重试");
+      setSubmitting(false);
     }
   };
+
+  if (loading && !session) {
+    return (
+      <DiagnosisShell
+        left={<SkeletonState rows={5} />}
+        right={<SkeletonState rows={4} />}
+      />
+    );
+  }
+  if (error && !session) {
+    return (
+      <DiagnosisShell left={<ErrorState description={error} onRetry={reload} />} right={null} />
+    );
+  }
+  if (!session) return null;
 
   const conditions = [
-    { label: "金额", value: "约 ¥30,000" },
-    { label: "目标", value: "稳健增值并学习" },
-    { label: "期限", value: answers.horizon === "1y_to_3y" ? "1～3 年" : "待确认" },
-    { label: "应急储备", value: answers.emergency ? "已确认" : "待确认" },
-    { label: "可承受波动", value: answers.loss_tolerance ? "已确认" : "待确认" },
+    {
+      label: "金额",
+      value: formatAmount(session.answers.amountMin, session.answers.amountMax),
+    },
+    {
+      label: "期限",
+      value: session.answers.expectedUseHorizon
+        ? HORIZON_LABEL[session.answers.expectedUseHorizon] ?? "已确认"
+        : "待确认",
+    },
+    {
+      label: "应急储备",
+      value: session.answers.emergencyFundMonths
+        ? `约 ${session.answers.emergencyFundMonths} 个月`
+        : "待确认",
+    },
+    {
+      label: "可承受波动",
+      value: session.answers.lossTolerance
+        ? LOSS_LABEL[session.answers.lossTolerance] ?? "已确认"
+        : "待确认",
+    },
   ];
+  const answeredCount =
+    Object.keys(session.answers).filter((k) => !["amountMin", "amountMax"].includes(k) && session.answers[k] !== "skipped").length;
 
   return (
+    <DiagnosisShell
+      left={
+        <>
+          {/* 用户问题气泡 */}
+          <div className="flex justify-end">
+            <div className="max-w-[560px] rounded-2xl rounded-br-md bg-primary px-5 py-3.5 text-[16px] leading-relaxed text-primary-foreground">
+              {session.rawQuestion}
+            </div>
+          </div>
+
+          <p className="text-[15px] text-muted-foreground">
+            我先确认几个会影响路径的问题，每个问题都可以跳过。
+          </p>
+
+          {question ? (
+            <ClarificationCard
+              key={question.key}
+              question={question}
+              initialValue={session.answers[question.key]}
+              onAnswer={(v) => handleAnswer(question.key, v)}
+              onSkip={() => handleAnswer(question.key, "skipped")}
+              submitting={submitting}
+            />
+          ) : (
+            <Card className="rounded-2xl bg-card shadow-card">
+              <CardContent className="p-6">
+                <p className="text-[16px] text-foreground">条件已确认完毕，可以生成行动路径。</p>
+                <Button
+                  className="mt-4 gap-1.5 rounded-xl"
+                  onClick={goGenerate}
+                  disabled={submitting}
+                >
+                  {submitting ? "生成中…" : "生成我的行动路径"}
+                  {!submitting ? <ArrowRight className="size-4" aria-hidden /> : null}
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
+          {error ? (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          ) : null}
+
+          {/* 底部操作区 */}
+          <div className="flex items-center justify-between">
+            <Button variant="ghost" size="sm" asChild>
+              <Link href="/">
+                <ArrowLeft className="size-4" aria-hidden />
+                重新开始
+              </Link>
+            </Button>
+            <Button
+              size="sm"
+              className="gap-1.5 rounded-xl"
+              onClick={goGenerate}
+              disabled={submitting}
+            >
+              {submitting ? "生成中…" : "直接生成路径"}
+            </Button>
+          </div>
+          <p className="text-right text-sm text-muted-foreground">
+            已确认{" "}
+            <span className="font-number font-medium text-foreground">{answeredCount}</span> 项条件
+          </p>
+        </>
+      }
+      right={
+        <Card className="rounded-2xl bg-card shadow-card lg:sticky lg:top-8">
+          <CardContent className="p-6">
+            <h2 className="text-[17px] font-semibold text-foreground">当前情况</h2>
+            <dl className="mt-4 space-y-4">
+              {conditions.map((c) => (
+                <div key={c.label} className="flex items-start justify-between gap-3">
+                  <dt className="text-sm text-muted-foreground">{c.label}</dt>
+                  <dd className="flex items-center gap-1.5 text-right">
+                    <span
+                      className={
+                        c.value === "待确认"
+                          ? "text-sm text-muted-foreground"
+                          : "text-sm font-medium text-foreground"
+                      }
+                    >
+                      {c.value}
+                    </span>
+                    <button
+                      type="button"
+                      className="rounded-md p-1 text-muted-foreground outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+                      aria-label={`编辑${c.label}`}
+                    >
+                      <Pencil className="size-3" aria-hidden />
+                    </button>
+                  </dd>
+                </div>
+              ))}
+            </dl>
+            <p className="mt-5 rounded-xl bg-primary-soft px-3.5 py-2.5 text-xs leading-relaxed text-foreground">
+              你可以使用金额区间，信息仅用于生成本次路径。
+            </p>
+          </CardContent>
+        </Card>
+      }
+    />
+  );
+}
+
+const HORIZON_LABEL: Record<string, string> = {
+  anytime: "随时可能用到",
+  within_1y: "3～12 个月",
+  "1_to_3y": "1～3 年",
+  after_3y: "3 年以上",
+};
+const LOSS_LABEL: Record<string, string> = {
+  none: "不能承受波动",
+  small: "小幅波动可接受",
+  medium: "明显波动可接受",
+};
+
+/** P02 页面框架：顶部简化导航 + 两栏网格 */
+function DiagnosisShell({
+  left,
+  right,
+}: {
+  left: React.ReactNode;
+  right: React.ReactNode | null;
+}) {
+  return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
-      {/* 顶部简化框架 */}
       <header className="flex items-center justify-between border-b border-border px-8 py-4">
         <Link
           href="/"
@@ -86,88 +294,9 @@ export default function DiagnosisPage({
           退出
         </Link>
       </header>
-
-      {/* 主体两栏：左对话区 / 右摘要 */}
       <main className="mx-auto grid w-full max-w-[1200px] flex-1 grid-cols-1 gap-8 px-8 py-8 lg:grid-cols-[720px_360px]">
-        <section className="space-y-5">
-          {/* 用户问题气泡 */}
-          <div className="flex justify-end">
-            <div className="max-w-[560px] rounded-2xl rounded-br-md bg-primary px-5 py-3.5 text-[16px] leading-relaxed text-primary-foreground">
-              {session.rawQuestion}
-            </div>
-          </div>
-
-          <p className="text-[15px] text-muted-foreground">
-            我先确认几个会影响路径的问题，每个问题都可以跳过。
-          </p>
-
-          {/* 当前问题卡 */}
-          <ClarificationCard
-            key={question.key}
-            question={question}
-            initialValue={answers[question.key]}
-            onAnswer={handleAnswer}
-            onSkip={handleSkip}
-          />
-
-          {/* 底部操作区 */}
-          <div className="flex items-center justify-between">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setStep((s) => Math.max(0, s - 1))}
-              disabled={step === 0}
-              className="gap-1.5"
-            >
-              <ArrowLeft className="size-4" aria-hidden />
-              返回
-            </Button>
-            <Button size="sm" className="gap-1.5 rounded-xl" onClick={() => router.push("/plans/demo-plan")}>
-              生成我的行动路径
-              <ArrowRight className="size-4" aria-hidden />
-            </Button>
-          </div>
-          <p className="text-right text-sm text-muted-foreground">
-            已确认 <span className="font-number font-medium text-foreground">{confirmedCount}</span> 项条件
-          </p>
-        </section>
-
-        {/* 右侧当前情况摘要 */}
-        <aside>
-          <Card className="rounded-2xl bg-card shadow-card">
-            <CardContent className="p-6">
-              <h2 className="text-[17px] font-semibold text-foreground">当前情况</h2>
-              <dl className="mt-4 space-y-4">
-                {conditions.map((c) => (
-                  <div key={c.label} className="flex items-start justify-between gap-3">
-                    <dt className="text-sm text-muted-foreground">{c.label}</dt>
-                    <dd className="flex items-center gap-1.5 text-right">
-                      <span
-                        className={
-                          c.value === "待确认"
-                            ? "text-sm text-muted-foreground"
-                            : "text-sm font-medium text-foreground"
-                        }
-                      >
-                        {c.value}
-                      </span>
-                      <button
-                        type="button"
-                        className="rounded-md p-1 text-muted-foreground outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
-                        aria-label={`编辑${c.label}`}
-                      >
-                        <Pencil className="size-3" aria-hidden />
-                      </button>
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-              <p className="mt-5 rounded-xl bg-primary-soft px-3.5 py-2.5 text-xs leading-relaxed text-foreground">
-                你可以使用金额区间，信息仅用于生成本次路径。
-              </p>
-            </CardContent>
-          </Card>
-        </aside>
+        <section className="space-y-5">{left}</section>
+        {right ? <aside className="hidden lg:block">{right}</aside> : null}
       </main>
     </div>
   );

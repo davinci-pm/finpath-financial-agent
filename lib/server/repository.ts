@@ -7,8 +7,11 @@ import {
 } from "@/lib/mock-data";
 import type {
   Asset,
+  DiagnosisRecord,
   Goal,
   MoneyMap,
+  PlanRecord,
+  ScenarioType,
   Task,
   TaskStatus,
   TaskStep,
@@ -153,6 +156,19 @@ export type CreateTaskInput = {
   steps?: Array<{ title: string; description?: string; estimatedMinutes?: number }>;
 };
 
+export type CreatePlanInput = {
+  sessionId: string;
+  conclusion: string;
+  summary: string;
+  hardConstraints: string[];
+  buckets: PlanRecord["buckets"];
+  actionItems: PlanRecord["actionItems"];
+  risks: string[];
+  sourceIds: string[];
+  disclaimer: string;
+  rationale: string[];
+};
+
 export interface FinPathRepository {
   /* 资金地图 */
   getMoneyMap(userId: string): Promise<MoneyMap>;
@@ -173,6 +189,26 @@ export interface FinPathRepository {
   createTask(userId: string, input: CreateTaskInput): Promise<Task>;
   updateTaskStatus(userId: string, id: string, status: TaskStatus): Promise<Task | null>;
   completeStep(userId: string, taskId: string, stepId: string): Promise<Task | null>;
+
+  /* 诊断会话（阶段 4） */
+  createDiagnosisSession(
+    userId: string,
+    input: { rawQuestion: string; scenarioType: ScenarioType },
+  ): Promise<DiagnosisRecord>;
+  getDiagnosisSession(userId: string, id: string): Promise<DiagnosisRecord | null>;
+  updateDiagnosisSession(
+    userId: string,
+    id: string,
+    patch: {
+      answers?: Record<string, string>;
+      currentQuestionKey?: string | null;
+      status?: "clarifying" | "completed";
+    },
+  ): Promise<DiagnosisRecord | null>;
+
+  /* 计划（阶段 4） */
+  createPlan(userId: string, input: CreatePlanInput): Promise<PlanRecord>;
+  getPlan(userId: string, id: string): Promise<PlanRecord | null>;
 }
 
 /* ============ DemoRepository（无凭据回退，明确标记） ============ */
@@ -342,6 +378,81 @@ export class DemoRepository implements FinPathRepository {
     if (task.progressCurrent >= task.progressTotal) task.status = "completed";
     task.updatedAt = new Date().toISOString().slice(0, 10);
     return task;
+  }
+
+  /* ===== 诊断会话（阶段 4） ===== */
+
+  private sessions: DiagnosisRecord[] = [];
+  private plans: PlanRecord[] = [];
+  private sessionSeq = 3000;
+  private planSeq = 4000;
+
+  async createDiagnosisSession(
+    _userId: string,
+    input: { rawQuestion: string; scenarioType: ScenarioType },
+  ): Promise<DiagnosisRecord> {
+    const now = new Date().toISOString();
+    const session: DiagnosisRecord = {
+      id: `demo-session-${++this.sessionSeq}`,
+      rawQuestion: input.rawQuestion,
+      scenarioType: input.scenarioType,
+      status: "clarifying",
+      currentQuestionKey: null,
+      answers: {},
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.sessions.unshift(session);
+    return session;
+  }
+
+  async getDiagnosisSession(
+    _userId: string,
+    id: string,
+  ): Promise<DiagnosisRecord | null> {
+    return this.sessions.find((s) => s.id === id) ?? null;
+  }
+
+  async updateDiagnosisSession(
+    _userId: string,
+    id: string,
+    patch: {
+      answers?: Record<string, string>;
+      currentQuestionKey?: string | null;
+      status?: "clarifying" | "completed";
+    },
+  ): Promise<DiagnosisRecord | null> {
+    const session = this.sessions.find((s) => s.id === id);
+    if (!session) return null;
+    if (patch.answers) session.answers = { ...session.answers, ...patch.answers };
+    if (patch.currentQuestionKey !== undefined) session.currentQuestionKey = patch.currentQuestionKey;
+    if (patch.status) session.status = patch.status;
+    session.updatedAt = new Date().toISOString();
+    return session;
+  }
+
+  async createPlan(_userId: string, input: CreatePlanInput): Promise<PlanRecord> {
+    const now = new Date().toISOString();
+    const plan: PlanRecord = {
+      id: `demo-plan-${++this.planSeq}`,
+      sessionId: input.sessionId,
+      conclusion: input.conclusion,
+      summary: input.summary,
+      hardConstraints: input.hardConstraints,
+      buckets: input.buckets,
+      actionItems: input.actionItems,
+      risks: input.risks,
+      sourceIds: input.sourceIds,
+      disclaimer: input.disclaimer,
+      rationale: input.rationale,
+      updatedAt: now,
+    };
+    this.plans.unshift(plan);
+    return plan;
+  }
+
+  async getPlan(_userId: string, id: string): Promise<PlanRecord | null> {
+    return this.plans.find((p) => p.id === id) ?? null;
   }
 }
 
@@ -567,6 +678,163 @@ export class SupabaseRepository implements FinPathRepository {
     if (error) throw new Error(`completeStep task 失败: ${error.message}`);
     if (!data) return null;
     return toTask(data as unknown as TaskRow, await this.loadSteps(taskId));
+  }
+
+  /* ===== 诊断会话（阶段 4） ===== */
+
+  async createDiagnosisSession(
+    userId: string,
+    input: { rawQuestion: string; scenarioType: ScenarioType },
+  ): Promise<DiagnosisRecord> {
+    const { data, error } = await this.client
+      .from("diagnosis_sessions")
+      .insert({
+        user_id: userId,
+        raw_question: input.rawQuestion,
+        scenario_type: input.scenarioType,
+        status: "clarifying",
+        answers_json: {},
+      })
+      .select()
+      .single();
+    if (error || !data) throw new Error(`createDiagnosisSession 失败: ${error?.message}`);
+    const r = data as unknown as {
+      id: string;
+      raw_question: string;
+      scenario_type: string;
+      status: string;
+      current_question_key: string | null;
+      answers_json: Record<string, string>;
+      created_at: string;
+      updated_at: string;
+    };
+    return {
+      id: r.id,
+      rawQuestion: r.raw_question,
+      scenarioType: r.scenario_type as ScenarioType,
+      status: r.status as DiagnosisRecord["status"],
+      currentQuestionKey: r.current_question_key,
+      answers: r.answers_json ?? {},
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    };
+  }
+
+  async getDiagnosisSession(
+    userId: string,
+    id: string,
+  ): Promise<DiagnosisRecord | null> {
+    const { data } = await this.client
+      .from("diagnosis_sessions")
+      .select("*")
+      .eq("id", id)
+      .eq("user_id", userId)
+      .single();
+    if (!data) return null;
+    const r = data as unknown as {
+      id: string;
+      raw_question: string;
+      scenario_type: string;
+      status: string;
+      current_question_key: string | null;
+      answers_json: Record<string, string>;
+      created_at: string;
+      updated_at: string;
+    };
+    return {
+      id: r.id,
+      rawQuestion: r.raw_question,
+      scenarioType: r.scenario_type as ScenarioType,
+      status: r.status as DiagnosisRecord["status"],
+      currentQuestionKey: r.current_question_key,
+      answers: r.answers_json ?? {},
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    };
+  }
+
+  async updateDiagnosisSession(
+    userId: string,
+    id: string,
+    patch: {
+      answers?: Record<string, string>;
+      currentQuestionKey?: string | null;
+      status?: "clarifying" | "completed";
+    },
+  ): Promise<DiagnosisRecord | null> {
+    const dbPatch: Record<string, unknown> = {};
+    if (patch.answers) dbPatch.answers_json = patch.answers;
+    if (patch.currentQuestionKey !== undefined) dbPatch.current_question_key = patch.currentQuestionKey;
+    if (patch.status) dbPatch.status = patch.status;
+    const { data, error } = await this.client
+      .from("diagnosis_sessions")
+      .update(dbPatch)
+      .eq("id", id)
+      .eq("user_id", userId)
+      .select()
+      .single();
+    if (error) throw new Error(`updateDiagnosisSession 失败: ${error.message}`);
+    if (!data) return null;
+    return this.getDiagnosisSession(userId, id);
+  }
+
+  async createPlan(userId: string, input: CreatePlanInput): Promise<PlanRecord> {
+    const { data, error } = await this.client
+      .from("plans")
+      .insert({
+        user_id: userId,
+        diagnosis_session_id: input.sessionId,
+        conclusion: input.conclusion,
+        constraints_json: {
+          hardConstraints: input.hardConstraints,
+          summary: input.summary,
+          rationale: input.rationale,
+          disclaimer: input.disclaimer,
+        },
+        allocations_json: input.buckets,
+        actions_json: input.actionItems,
+        risks_json: input.risks,
+        source_ids_json: input.sourceIds,
+      })
+      .select()
+      .single();
+    if (error || !data) throw new Error(`createPlan 失败: ${error?.message}`);
+    return this.getPlan(userId, (data as { id: string }).id) as Promise<PlanRecord>;
+  }
+
+  async getPlan(userId: string, id: string): Promise<PlanRecord | null> {
+    const { data } = await this.client
+      .from("plans")
+      .select("*")
+      .eq("id", id)
+      .eq("user_id", userId)
+      .single();
+    if (!data) return null;
+    const r = data as unknown as {
+      id: string;
+      diagnosis_session_id: string;
+      conclusion: string;
+      constraints_json: { hardConstraints?: string[]; summary?: string; rationale?: string[]; disclaimer?: string };
+      allocations_json: PlanRecord["buckets"];
+      actions_json: PlanRecord["actionItems"];
+      risks_json: string[];
+      source_ids_json: string[];
+      created_at: string;
+    };
+    return {
+      id: r.id,
+      sessionId: r.diagnosis_session_id,
+      conclusion: r.conclusion,
+      summary: r.constraints_json?.summary ?? "",
+      hardConstraints: r.constraints_json?.hardConstraints ?? [],
+      buckets: r.allocations_json ?? [],
+      actionItems: r.actions_json ?? [],
+      risks: r.risks_json ?? [],
+      sourceIds: r.source_ids_json ?? [],
+      disclaimer: r.constraints_json?.disclaimer ?? "行动教育建议，不构成具体投资推荐。",
+      rationale: r.constraints_json?.rationale ?? [],
+      updatedAt: r.created_at,
+    };
   }
 }
 

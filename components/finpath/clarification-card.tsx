@@ -17,6 +17,8 @@ export type ClarificationCardProps = {
   onSkip?: () => void;
   /** 是否显示"为什么需要问这个"说明 */
   showReason?: boolean;
+  /** 提交中（按钮禁用，防止重复提交） */
+  submitting?: boolean;
 };
 
 /** P02 渐进式澄清问题卡：一次只展示一个问题 */
@@ -26,6 +28,7 @@ export function ClarificationCard({
   onAnswer,
   onSkip,
   showReason = true,
+  submitting = false,
 }: ClarificationCardProps) {
   const [selected, setSelected] = useState<string | undefined>(initialValue);
   const [reasonOpen, setReasonOpen] = useState(false);
@@ -99,10 +102,10 @@ export function ClarificationCard({
         <div className="mt-6 flex justify-end">
           <Button
             onClick={() => selected && onAnswer(selected)}
-            disabled={!selected}
+            disabled={!selected || submitting}
             className="rounded-xl px-6"
           >
-            下一步
+            {submitting ? "提交中…" : "下一步"}
           </Button>
         </div>
       </CardContent>

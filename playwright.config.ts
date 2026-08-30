@@ -26,5 +26,7 @@ export default defineConfig({
     url: "http://localhost:3000",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
+    // e2e 强制 Mock Provider，不消耗真实 Token
+    env: { AI_TEXT_PROVIDER: "mock" },
   },
 });

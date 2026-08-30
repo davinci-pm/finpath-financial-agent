@@ -1,4 +1,4 @@
-import type { Asset, MoneyMap, Task } from "@/lib/types";
+import type { Asset, ClarificationQuestion, DiagnosisRecord, MoneyMap, PlanRecord, Task } from "@/lib/types";
 
 /**
  * 前端 API 客户端（阶段 3）
@@ -21,6 +21,51 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
     throw new Error(message);
   }
   return res.json() as Promise<T>;
+}
+
+/* ============ 诊断与计划（阶段 4） ============ */
+
+export async function createDiagnosis(question: string) {
+  return request<{
+    session: DiagnosisRecord;
+    question: ClarificationQuestion | null;
+    scenario: string;
+  }>("/api/diagnosis", {
+    method: "POST",
+    body: JSON.stringify({ question }),
+  });
+}
+
+export async function fetchDiagnosis(id: string) {
+  return request<{ session: DiagnosisRecord; question: ClarificationQuestion | null }>(
+    `/api/diagnosis/${id}`,
+  );
+}
+
+export async function answerDiagnosis(
+  id: string,
+  key: string,
+  value: string,
+) {
+  return request<{
+    session: DiagnosisRecord;
+    question: ClarificationQuestion | null;
+    completed: boolean;
+  }>(`/api/diagnosis/${id}/answer`, {
+    method: "POST",
+    body: JSON.stringify({ key, value }),
+  });
+}
+
+export async function generatePlan(sessionId: string) {
+  return request<{ plan: PlanRecord }>(`/api/diagnosis/${sessionId}/generate-plan`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export async function fetchPlan(planId: string) {
+  return request<{ plan: PlanRecord }>(`/api/plans/${planId}`);
 }
 
 /* ============ 资金地图 ============ */

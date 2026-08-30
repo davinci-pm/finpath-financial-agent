@@ -255,3 +255,31 @@ export type PeerExperience = {
   date: string;
   pitfalls: string[];
 };
+
+/* ============ 诊断会话与计划（阶段 4） ============ */
+
+export type DiagnosisRecord = {
+  id: string;
+  rawQuestion: string;
+  scenarioType: ScenarioType;
+  status: "clarifying" | "completed";
+  currentQuestionKey: string | null;
+  answers: Record<string, string>;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PlanRecord = {
+  id: string;
+  sessionId: string;
+  conclusion: string;
+  summary: string;
+  hardConstraints: string[];
+  buckets: PlanBucket[];
+  actionItems: Array<{ id: string; title: string; done: boolean }>;
+  risks: string[];
+  sourceIds: string[];
+  disclaimer: string;
+  rationale: string[];
+  updatedAt: string;
+};
