@@ -1,8 +1,8 @@
 export type PageHeaderProps = {
   /** 主标题 36—40px（页面只突出一个主要任务） */
-  title?: string;
+  title?: React.ReactNode;
   /** 副标题 16—17px 辅助文字 */
-  description?: string;
+  description?: React.ReactNode;
   /** 右上角操作区 */
   actions?: React.ReactNode;
 };

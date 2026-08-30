@@ -1,19 +1,15 @@
-import type { Metadata } from "next";
-import { PlaceholderPage } from "@/components/finpath/placeholder-page";
-
-export const metadata: Metadata = { title: "资金地图" };
+import { Suspense } from "react";
+import { MoneyMapView } from "@/components/finpath/money-map-view";
+import { SkeletonState } from "@/components/finpath/skeleton-state";
 
 /**
- * P08 我的资金地图 / 个人金融驾驶舱（阶段 2 实现）。
- * P09 为 P08 上打开右侧抽屉（?drawer=add-asset），阶段 2 一并实现。
+ * P08 我的资金地图 / 个人金融驾驶舱
+ * useSearchParams（?drawer=add-asset → P09）需 Suspense 边界，故拆 server wrapper + client 视图。
  */
 export default function MoneyMapPage() {
   return (
-    <PlaceholderPage
-      prototypeId="P08"
-      title="我的资金地图"
-      description="先看全局，再决定下一步：总资产、负债、净资产与优先行动。"
-      route="/money-map"
-    />
+    <Suspense fallback={<SkeletonState rows={4} className="mt-6" />}>
+      <MoneyMapView />
+    </Suspense>
   );
 }

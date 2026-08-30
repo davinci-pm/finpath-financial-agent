@@ -5,9 +5,9 @@ import { PageHeader, type PageHeaderProps } from "./page-header";
 export type AppShellProps = {
   children: React.ReactNode;
   /** 页面主标题（一页只突出一个主要任务） */
-  title?: string;
+  title?: React.ReactNode;
   /** 副标题，16—17px 辅助文字 */
-  description?: string;
+  description?: React.ReactNode;
   /** 右上角操作区（按钮等） */
   actions?: PageHeaderProps["actions"];
   /** 主内容最大宽度，默认 1200px */
