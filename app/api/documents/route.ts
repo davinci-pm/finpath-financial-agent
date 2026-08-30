@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { AuthRequiredError, getRepository } from "@/lib/server/repository";
-import { isAcceptedFile, maxUploadBytes } from "@/lib/server/documents/analyzer";
+import {
+  hasAcceptedFileSignature,
+  isAcceptedFile,
+  maxUploadBytes,
+} from "@/lib/server/documents/analyzer";
 
 /**
  * POST /api/documents — 上传金融产品文件（multipart/form-data, 字段名 file）
@@ -32,10 +36,19 @@ export async function POST(req: Request) {
       { status: 413 },
     );
   }
+  if (file.size === 0) {
+    return NextResponse.json({ error: "文件内容为空" }, { status: 400 });
+  }
 
   try {
     const { repo, userId, mode } = await getRepository();
     const buffer = Buffer.from(await file.arrayBuffer());
+    if (!hasAcceptedFileSignature(buffer, mimeType)) {
+      return NextResponse.json(
+        { error: "文件内容与扩展名或类型不匹配" },
+        { status: 415 },
+      );
+    }
     const doc = await repo.createDocument(userId, {
       fileName: file.name,
       mimeType,

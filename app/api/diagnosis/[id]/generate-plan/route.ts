@@ -3,6 +3,7 @@ import { AuthRequiredError, getRepository } from "@/lib/server/repository";
 import {
   AIOutputError,
   generatePlan,
+  nextQuestionKey,
   UnsafeOutputError,
 } from "@/lib/server/diagnosis-service";
 
@@ -19,6 +20,12 @@ export async function POST(_req: Request, { params }: Params) {
     const session = await repo.getDiagnosisSession(userId, id);
     if (!session) {
       return NextResponse.json({ error: "会话不存在或无权访问" }, { status: 404 });
+    }
+    if (nextQuestionKey(session) !== null) {
+      return NextResponse.json(
+        { error: "请先完成或跳过全部澄清问题后再生成计划" },
+        { status: 409 },
+      );
     }
     const plan = await generatePlan(repo, userId, session);
     return NextResponse.json({ plan, mode }, { status: 201 });

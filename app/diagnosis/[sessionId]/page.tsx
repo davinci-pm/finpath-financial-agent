@@ -121,24 +121,28 @@ export default function DiagnosisPage({
     {
       label: "金额",
       value: formatAmount(session.answers.amountMin, session.answers.amountMax),
+      key: null,
     },
     {
       label: "期限",
       value: session.answers.expectedUseHorizon
         ? HORIZON_LABEL[session.answers.expectedUseHorizon] ?? "已确认"
         : "待确认",
+      key: "expectedUseHorizon",
     },
     {
       label: "应急储备",
       value: session.answers.emergencyFundMonths
         ? `约 ${session.answers.emergencyFundMonths} 个月`
         : "待确认",
+      key: "emergencyFundMonths",
     },
     {
       label: "可承受波动",
       value: session.answers.lossTolerance
         ? LOSS_LABEL[session.answers.lossTolerance] ?? "已确认"
         : "待确认",
+      key: "lossTolerance",
     },
   ];
   const answeredCount =
@@ -198,14 +202,16 @@ export default function DiagnosisPage({
                 重新开始
               </Link>
             </Button>
-            <Button
-              size="sm"
-              className="gap-1.5 rounded-xl"
-              onClick={goGenerate}
-              disabled={submitting}
-            >
-              {submitting ? "生成中…" : "直接生成路径"}
-            </Button>
+            {!question ? (
+              <Button
+                size="sm"
+                className="gap-1.5 rounded-xl"
+                onClick={goGenerate}
+                disabled={submitting}
+              >
+                {submitting ? "生成中…" : "生成行动路径"}
+              </Button>
+            ) : null}
           </div>
           <p className="text-right text-sm text-muted-foreground">
             已确认{" "}
@@ -231,13 +237,19 @@ export default function DiagnosisPage({
                     >
                       {c.value}
                     </span>
-                    <button
-                      type="button"
-                      className="rounded-md p-1 text-muted-foreground outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
-                      aria-label={`编辑${c.label}`}
-                    >
-                      <Pencil className="size-3" aria-hidden />
-                    </button>
+                    {c.key && session.answers[c.key] !== undefined ? (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const data = await fetchDiagnosis(sessionId, c.key!);
+                          setQuestion(data.question);
+                        }}
+                        className="rounded-md p-1 text-muted-foreground outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+                        aria-label={`编辑${c.label}`}
+                      >
+                        <Pencil className="size-3" aria-hidden />
+                      </button>
+                    ) : null}
                   </dd>
                 </div>
               ))}

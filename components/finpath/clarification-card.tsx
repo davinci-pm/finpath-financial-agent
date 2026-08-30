@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -32,6 +32,7 @@ export function ClarificationCard({
 }: ClarificationCardProps) {
   const [selected, setSelected] = useState<string | undefined>(initialValue);
   const [reasonOpen, setReasonOpen] = useState(false);
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   return (
     <Card className="rounded-2xl bg-card shadow-card">
@@ -41,7 +42,7 @@ export function ClarificationCard({
         </h2>
 
         <div role="radiogroup" aria-label={question.question} className="mt-5 grid gap-3">
-          {question.options.map((opt) => {
+          {question.options.map((opt, index) => {
             const isSelected = selected === opt.value;
             return (
               <button
@@ -50,6 +51,22 @@ export function ClarificationCard({
                 role="radio"
                 aria-checked={isSelected}
                 onClick={() => setSelected(opt.value)}
+                ref={(element) => {
+                  optionRefs.current[index] = element;
+                }}
+                tabIndex={isSelected || (!selected && index === 0) ? 0 : -1}
+                onKeyDown={(event) => {
+                  const direction = event.key === "ArrowDown" || event.key === "ArrowRight"
+                    ? 1
+                    : event.key === "ArrowUp" || event.key === "ArrowLeft"
+                      ? -1
+                      : 0;
+                  if (!direction) return;
+                  event.preventDefault();
+                  const nextIndex = (index + direction + question.options.length) % question.options.length;
+                  setSelected(question.options[nextIndex].value);
+                  optionRefs.current[nextIndex]?.focus();
+                }}
                 className={cn(
                   "flex items-center justify-between rounded-xl border px-4 py-3.5 text-left text-[16px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
                   isSelected

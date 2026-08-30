@@ -34,9 +34,20 @@ export async function POST(req: Request, { params }: Params) {
     if (!session) {
       return NextResponse.json({ error: "会话不存在或无权访问" }, { status: 404 });
     }
-    // 校验 key 是合法澄清问题
-    if (!getClarificationQuestion(parsed.data.key)) {
+    const question = getClarificationQuestion(parsed.data.key);
+    if (!question) {
       return NextResponse.json({ error: `未知澄清字段: ${parsed.data.key}` }, { status: 400 });
+    }
+    const valueAllowed =
+      question.options.some((option) => option.value === parsed.data.value) ||
+      (question.skippable && parsed.data.value === "skipped");
+    if (!valueAllowed) {
+      return NextResponse.json({ error: "答案不属于该问题的可选项" }, { status: 400 });
+    }
+    const currentKey = nextClarification(session)?.key;
+    const isEditingAnsweredField = session.answers[parsed.data.key] !== undefined;
+    if (currentKey !== parsed.data.key && !isEditingAnsweredField) {
+      return NextResponse.json({ error: "请先回答当前问题" }, { status: 409 });
     }
 
     const answers = { ...session.answers, [parsed.data.key]: parsed.data.value };
@@ -48,11 +59,11 @@ export async function POST(req: Request, { params }: Params) {
       return NextResponse.json({ session: updated, question: next, completed: false, mode });
     }
 
-    await repo.updateDiagnosisSession(userId, id, {
+    const completedSession = await repo.updateDiagnosisSession(userId, id, {
       status: "completed",
       currentQuestionKey: null,
     });
-    return NextResponse.json({ session: updated, question: null, completed: true, mode });
+    return NextResponse.json({ session: completedSession, question: null, completed: true, mode });
   } catch (e) {
     if (e instanceof AuthRequiredError) {
       return NextResponse.json({ error: "请先登录" }, { status: 401 });

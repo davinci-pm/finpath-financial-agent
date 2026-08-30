@@ -3,7 +3,7 @@ import { PLAN_EXPLANATION_PROMPT, SCENARIO_PROMPT } from "./ai/prompts";
 import { createTextProvider } from "./ai/provider";
 import { ActionPlanSchema, ScenarioSchema, type ActionPlanOutput, type ScenarioOutput } from "./ai/schemas";
 import type { ModelCallRecord, ModelProvider } from "./ai/types";
-import { buildDiagnosisInput, runRules, type RuleResult } from "./rules/engine";
+import { buildDiagnosisInput, rationaleText, runRules, type RuleResult } from "./rules/engine";
 import { CLARIFICATION_ORDER, getClarificationQuestion } from "./rules/questions";
 import type { DiagnosisRecord, PlanRecord } from "@/lib/types";
 import type { FinPathRepository } from "./repository";
@@ -159,7 +159,7 @@ export async function generatePlan(
   // 2. 规则引擎先行（确定性硬约束与桶区间）
   const rule = runRules(input);
   const rationale = rule.buckets.flatMap((b) =>
-    b.rationaleCodes.map((code) => ruleText(code)),
+    b.rationaleCodes.map((code) => rationaleText(code)),
   );
 
   // 3. 模型只负责解释与组织（输入规则结果）
@@ -232,19 +232,4 @@ export async function generatePlan(
 
   void record;
   return plan;
-}
-
-function ruleText(code: string): string {
-  const map: Record<string, string> = {
-    short_horizon: "期限不足 1 年，优先保证流动性",
-    medium_horizon: "1～3 年期限，可配置稳健类工具",
-    long_horizon: "3 年以上期限，可承担一定波动",
-    no_emergency: "应急储备不足 3 个月，需优先补足",
-    has_emergency: "应急储备充足，可释放更多资金",
-    high_debt: "存在高息负债，偿债优先级最高",
-    no_debt: "无高息负债",
-    loss_none: "不能承受本金波动",
-    loss_small: "可承受小幅波动",
-  };
-  return map[code] ?? code;
 }

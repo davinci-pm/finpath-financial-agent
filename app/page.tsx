@@ -39,8 +39,12 @@ export default function HomePage() {
           <Link href="/learn" className="hover:text-foreground">金融知识库</Link>
         </nav>
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm">登录</Button>
-          <Button size="sm">免费问一问</Button>
+          <Button variant="ghost" size="sm" asChild>
+            <Link href="/money-map">进入工作台</Link>
+          </Button>
+          <Button size="sm" asChild>
+            <Link href="/ask">免费问一问</Link>
+          </Button>
         </div>
       </header>
 

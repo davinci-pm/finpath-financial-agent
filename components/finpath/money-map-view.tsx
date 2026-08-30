@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowRight,
   Banknote,
@@ -24,7 +24,7 @@ import { RiskNotice } from "@/components/finpath/risk-notice";
 import { SkeletonState } from "@/components/finpath/skeleton-state";
 import { TaskCard } from "@/components/finpath/task-card";
 import { ErrorState } from "@/components/finpath/error-state";
-import { createAsset, fetchMoneyMap, fetchTasks } from "@/lib/api-client";
+import { createAsset, createDiagnosis, fetchMoneyMap, fetchTasks } from "@/lib/api-client";
 import type { MoneyMap, Task } from "@/lib/types";
 
 const CHART_COLORS = ["#276B5D", "#6E9E8E", "#D7953F", "#8FA8A0", "#C65B5B"];
@@ -36,6 +36,7 @@ const formatCNY = (n: number) => `¥${n.toLocaleString("zh-CN")}`;
  * 数据来自 GET /api/money-map；P09 保存资产后立即重新拉取聚合（P09→P08 闭环）。
  */
 export function MoneyMapView() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const [drawerOpen, setDrawerOpen] = useState(
     searchParams.get("drawer") === "add-asset",
@@ -46,6 +47,8 @@ export function MoneyMapView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savedNotice, setSavedNotice] = useState(false);
+  const [asking, setAsking] = useState(false);
+  const [askError, setAskError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     try {
@@ -135,7 +138,25 @@ export function MoneyMapView() {
         </>
       }
     >
-      <AIQuestionInput placeholder="现在最想解决什么金融问题？" attachmentHint="" className="mb-6" />
+      <div className="mb-6">
+        <AIQuestionInput
+          placeholder="现在最想解决什么金融问题？"
+          attachmentHint=""
+          loading={asking}
+          onSubmit={async (question) => {
+            setAsking(true);
+            setAskError(null);
+            try {
+              const { session } = await createDiagnosis(question);
+              router.push(`/diagnosis/${session.id}`);
+            } catch (error) {
+              setAskError(error instanceof Error ? error.message : "无法开始诊断，请稍后重试");
+              setAsking(false);
+            }
+          }}
+        />
+        {askError ? <p role="alert" className="mt-2 text-sm text-destructive">{askError}</p> : null}
+      </div>
 
       {/* 指标卡 */}
       <section className="grid grid-cols-2 gap-4 lg:grid-cols-4" aria-label="资金指标">
@@ -300,13 +321,9 @@ export function MoneyMapView() {
         open={drawerOpen}
         onOpenChange={setDrawerOpen}
         onSave={async (data) => {
-          try {
-            await createAsset(data);
-            await reload();
-            setSavedNotice(true);
-          } catch (e) {
-            setError(e instanceof Error ? e.message : "保存失败");
-          }
+          await createAsset(data);
+          await reload();
+          setSavedNotice(true);
         }}
       />
     </AppShell>

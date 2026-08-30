@@ -45,9 +45,9 @@ export async function createDiagnosis(question: string) {
   });
 }
 
-export async function fetchDiagnosis(id: string) {
+export async function fetchDiagnosis(id: string, questionKey?: string) {
   return request<{ session: DiagnosisRecord; question: ClarificationQuestion | null }>(
-    `/api/diagnosis/${id}`,
+    `/api/diagnosis/${id}${questionKey ? `?questionKey=${encodeURIComponent(questionKey)}` : ""}`,
   );
 }
 

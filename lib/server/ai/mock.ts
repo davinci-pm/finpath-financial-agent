@@ -22,13 +22,34 @@ export class MockModelProvider implements ModelProvider {
     }
 
     if (system.includes("规则引擎给出的硬约束")) {
+      const user = messages.find((m) => m.role === "user")?.content ?? "";
+      const start = user.indexOf("{");
+      const end = user.lastIndexOf("}");
+      const rule = start >= 0 && end > start
+        ? JSON.parse(user.slice(start, end + 1)) as {
+            buckets?: Array<{ key: string; percentageRange: [number, number] }>;
+          }
+        : {};
+      const ranges = rule.buckets ?? [
+        { key: "reserve", percentageRange: [35, 45] as [number, number] },
+        { key: "stable", percentageRange: [30, 45] as [number, number] },
+        { key: "learning", percentageRange: [15, 25] as [number, number] },
+      ];
+      const percentages = ranges.map((bucket) => bucket.percentageRange[0]);
+      let remaining = 100 - percentages.reduce((sum, value) => sum + value, 0);
+      for (let i = 0; i < ranges.length && remaining > 0; i++) {
+        const capacity = ranges[i].percentageRange[1] - percentages[i];
+        const addition = Math.min(capacity, remaining);
+        percentages[i] += addition;
+        remaining -= addition;
+      }
       return JSON.stringify({
         conclusion: "这笔钱暂时不适合全部进入高波动资产",
         summary: "根据 1～3 年资金期限和当前应急储备情况，建议先拆分资金用途。",
         buckets: [
-          { key: "reserve", label: "生活缓冲区", percentage: 40, action: "确认应急资金目标" },
-          { key: "stable", label: "稳健了解区", percentage: 40, action: "了解国债的购买与期限" },
-          { key: "learning", label: "小额学习区", percentage: 20, action: "完成基金波动入门卡" },
+          { key: "reserve", label: "生活缓冲区", percentage: percentages[0], action: "确认应急资金目标" },
+          { key: "stable", label: "稳健了解区", percentage: percentages[1], action: "了解国债的购买与期限" },
+          { key: "learning", label: "小额学习区", percentage: percentages[2], action: "完成基金波动入门卡" },
         ],
         nextActions: [
           { title: "确认应急资金目标", timeframe: "本周" },

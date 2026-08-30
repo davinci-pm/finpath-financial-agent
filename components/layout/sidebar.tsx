@@ -36,8 +36,36 @@ export function Sidebar() {
     return pathname === href || pathname.startsWith(`${href}/`);
   };
 
+  const links = (mobile = false) => NAV_ITEMS.map((item) => {
+    const active = isActive(item.href);
+    const Icon = item.icon;
+    return (
+      <Link
+        key={item.href}
+        href={item.href}
+        aria-current={active ? "page" : undefined}
+        className={cn(
+          mobile
+            ? "flex min-w-0 flex-1 flex-col items-center gap-1 rounded-xl px-1 py-2 text-[11px] font-medium"
+            : "flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-[15px] font-medium",
+          "outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+          active
+            ? "bg-primary-soft text-foreground"
+            : "text-muted-foreground hover:bg-muted hover:text-foreground",
+        )}
+      >
+        <Icon
+          className={cn(mobile ? "size-4" : "size-[18px]", active ? "text-primary" : "")}
+          aria-hidden
+        />
+        <span className={mobile ? "truncate" : undefined}>{item.label}</span>
+      </Link>
+    );
+  });
+
   return (
-    <aside className="sticky top-0 flex h-screen w-[220px] shrink-0 flex-col border-r border-border bg-background">
+    <>
+    <aside className="sticky top-0 hidden h-screen w-[220px] shrink-0 flex-col border-r border-border bg-background md:flex">
       {/* Logo */}
       <Link
         href="/"
@@ -54,29 +82,7 @@ export function Sidebar() {
 
       {/* 导航 */}
       <nav className="flex-1 space-y-1 px-3" aria-label="主导航">
-        {NAV_ITEMS.map((item) => {
-          const active = isActive(item.href);
-          const Icon = item.icon;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              aria-current={active ? "page" : undefined}
-              className={cn(
-                "flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-[15px] font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-                active
-                  ? "bg-primary-soft text-foreground"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
-              )}
-            >
-              <Icon
-                className={cn("size-[18px]", active ? "text-primary" : "")}
-                aria-hidden
-              />
-              {item.label}
-            </Link>
-          );
-        })}
+        {links()}
       </nav>
 
       {/* 底部提示 */}
@@ -86,5 +92,12 @@ export function Sidebar() {
         </p>
       </div>
     </aside>
+    <nav
+      aria-label="移动主导航"
+      className="fixed inset-x-0 bottom-0 z-50 flex border-t border-border bg-background/95 px-2 py-1 backdrop-blur md:hidden"
+    >
+      {links(true)}
+    </nav>
+    </>
   );
 }

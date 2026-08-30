@@ -29,7 +29,7 @@ export type AssetFormDrawerProps = {
     maturityDate?: string;
     liquidity?: string;
     note?: string;
-  }) => void;
+  }) => void | Promise<void>;
 };
 
 const KIND_TABS: Array<{ value: AssetKind; label: string }> = [
@@ -54,6 +54,8 @@ export function AssetFormDrawer({ open, onOpenChange, onSave }: AssetFormDrawerP
   const [maturityDate, setMaturityDate] = useState("2026-12");
   const [liquidity, setLiquidity] = useState("到期前不方便使用");
   const [note, setNote] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const categories = useMemo(() => {
     if (kind === "asset") return [...ASSET_CATEGORIES];
@@ -61,20 +63,40 @@ export function AssetFormDrawer({ open, onOpenChange, onSave }: AssetFormDrawerP
     return [...GOAL_CATEGORIES];
   }, [kind]);
 
-  const handleSave = () => {
-    onSave?.({
+  const handleSave = async () => {
+    setSubmitError(null);
+    const exact = amountExact ? Number(amountExact) : undefined;
+    const min = amountMin ? Number(amountMin) : undefined;
+    const max = amountMax ? Number(amountMax) : undefined;
+    const values = amountMode === "exact" ? [exact] : [min, max];
+    if (values.some((value) => value == null || !Number.isInteger(value) || value <= 0)) {
+      setSubmitError("金额必须是大于 0 的整数");
+      return;
+    }
+    if (amountMode === "range" && min! > max!) {
+      setSubmitError("金额下限不能大于上限");
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSave?.({
       kind,
       category,
       label: category,
-      amountExact: amountMode === "exact" && amountExact ? Number(amountExact) : undefined,
-      amountMin: amountMode === "range" && amountMin ? Number(amountMin) : undefined,
-      amountMax: amountMode === "range" && amountMax ? Number(amountMax) : undefined,
+      amountExact: amountMode === "exact" ? exact : undefined,
+      amountMin: amountMode === "range" ? min : undefined,
+      amountMax: amountMode === "range" ? max : undefined,
       purpose,
       maturityDate,
       liquidity,
       note: note || undefined,
-    });
-    onOpenChange(false);
+      });
+      onOpenChange(false);
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : "保存失败，请重试");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -99,7 +121,13 @@ export function AssetFormDrawer({ open, onOpenChange, onSave }: AssetFormDrawerP
                 aria-selected={kind === tab.value}
                 onClick={() => {
                   setKind(tab.value);
-                  setCategory(categories[0]);
+                  const nextCategories = tab.value === "asset"
+                    ? ASSET_CATEGORIES
+                    : tab.value === "liability"
+                      ? LIABILITY_CATEGORIES
+                      : GOAL_CATEGORIES;
+                  setCategory(nextCategories[0]);
+                  setSubmitError(null);
                 }}
                 className={cn(
                   "rounded-lg py-2 text-sm font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
@@ -260,11 +288,16 @@ export function AssetFormDrawer({ open, onOpenChange, onSave }: AssetFormDrawerP
         </div>
 
         <div className="sticky bottom-0 flex gap-3 border-t border-border bg-white px-6 py-4">
+          {submitError ? (
+            <p role="alert" className="absolute -top-10 left-6 right-6 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {submitError}
+            </p>
+          ) : null}
           <Button variant="outline" className="flex-1 rounded-xl" onClick={() => onOpenChange(false)}>
             取消
           </Button>
-          <Button className="flex-1 rounded-xl" onClick={handleSave}>
-            保存到资金地图
+          <Button className="flex-1 rounded-xl" onClick={handleSave} disabled={saving}>
+            {saving ? "保存中…" : "保存到资金地图"}
           </Button>
         </div>
       </SheetContent>

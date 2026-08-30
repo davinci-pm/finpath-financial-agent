@@ -9,7 +9,6 @@ import {
   ExternalLink,
   Flag,
   MessageCircleQuestion,
-  MoreHorizontal,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -40,6 +39,10 @@ export default function TaskDetailPage({
   const [error, setError] = useState<string | null>(null);
   const [stepStatuses, setStepStatuses] = useState<Record<string, TaskStepStatus>>({});
   const [expandedStep, setExpandedStep] = useState<string | null>(null);
+  const [taskNotes, setTaskNotes] = useState<Record<string, string>>({});
+  const [shareText, setShareText] = useState("");
+  const [shareFeedback, setShareFeedback] = useState<string | null>(null);
+  const [reportStatus, setReportStatus] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     try {
@@ -63,6 +66,8 @@ export default function TaskDetailPage({
         setTask(t);
         setStepStatuses(Object.fromEntries(t.steps.map((s) => [s.id, s.status])));
         setExpandedStep(t.steps.find((s) => s.status === "doing")?.id ?? null);
+        const storedNotes = localStorage.getItem(`finpath:task-notes:${t.id}`);
+        if (storedNotes) setTaskNotes(JSON.parse(storedNotes));
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "加载失败");
       } finally {
@@ -113,15 +118,12 @@ export default function TaskDetailPage({
     <AppShell
       title={task.title}
       actions={
-        <>
-          <Button variant="outline" size="sm" className="gap-1.5 rounded-xl">
+          <Button variant="outline" size="sm" className="gap-1.5 rounded-xl" asChild>
+            <Link href="/ask">
             <MessageCircleQuestion className="size-4" aria-hidden />
             问 AI
+            </Link>
           </Button>
-          <Button variant="ghost" size="icon" className="rounded-xl" aria-label="更多操作">
-            <MoreHorizontal className="size-4" aria-hidden />
-          </Button>
-        </>
       }
     >
       {/* 面包屑 + 状态 */}
@@ -234,6 +236,12 @@ export default function TaskDetailPage({
                         <textarea
                           placeholder="备注：例如核验到的费率信息…"
                           rows={2}
+                          value={taskNotes[s.id] ?? ""}
+                          onChange={(event) => {
+                            const next = { ...taskNotes, [s.id]: event.target.value };
+                            setTaskNotes(next);
+                            localStorage.setItem(`finpath:task-notes:${task.id}`, JSON.stringify(next));
+                          }}
                           className="mt-4 w-full resize-none rounded-xl border border-border bg-white px-3.5 py-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           aria-label="任务备注"
                         />
@@ -286,13 +294,13 @@ export default function TaskDetailPage({
         </aside>
       </div>
 
-      {/* 相似经验（Mock，阶段 6 前保持静态） */}
+      {/* 相似经验示例（Mock，正式上线前需替换为已审核内容） */}
       <section className="mt-8">
         <div className="flex items-center gap-2.5">
-          <h2 className="section-title text-foreground">和你情况相近的真实经验</h2>
+          <h2 className="section-title text-foreground">相似办理经验（示例）</h2>
           <SourceBadge type="personal" />
         </div>
-        <p className="mt-1 text-sm text-muted-foreground">个人经历仅供参考，规则与费用可能已变化。</p>
+        <p className="mt-1 text-sm text-muted-foreground">以下为演示内容，仅供理解功能；规则与费用请以官方最新信息为准。</p>
         <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
           {MOCK_PEER_EXPERIENCES.map((pe) => (
             <Card key={pe.id} className="rounded-2xl bg-card shadow-card">
@@ -343,18 +351,34 @@ export default function TaskDetailPage({
             <textarea
               placeholder="例如：我在办理时发现……"
               rows={2}
+              value={shareText}
+              onChange={(event) => {
+                setShareText(event.target.value);
+                setShareFeedback(null);
+              }}
               className="min-w-[260px] flex-1 resize-none rounded-xl border border-border bg-white px-3.5 py-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
               aria-label="分享你的经历"
             />
-            <Button className="rounded-xl">AI 帮我整理</Button>
+            <Button className="rounded-xl" onClick={() => {
+              const value = shareText.trim();
+              if (!value) {
+                setShareFeedback("请先写下你的经历。");
+                return;
+              }
+              setShareText(`我的办理经历：${value.replace(/^我的办理经历：/, "")}`);
+              setShareFeedback("已整理为草稿，请确认后再发布。");
+            }}>AI 帮我整理</Button>
           </div>
+          {shareFeedback ? <p role="status" className="mt-2 text-sm text-muted-foreground">{shareFeedback}</p> : null}
           <button
             type="button"
+            onClick={() => setReportStatus("已记录反馈，正式提交前仍会请你确认具体问题。")}
             className="mt-4 inline-flex items-center gap-1.5 text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
           >
             <Flag className="size-3.5" aria-hidden />
             报告过时信息
           </button>
+          {reportStatus ? <p role="status" className="mt-2 text-xs text-muted-foreground">{reportStatus}</p> : null}
         </CardContent>
       </Card>
     </AppShell>

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { AuthRequiredError, getRepository } from "@/lib/server/repository";
-import { AssetUpdateSchema } from "@/lib/server/schemas";
+import { AssetInputSchema, AssetUpdateSchema } from "@/lib/server/schemas";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -25,7 +25,18 @@ export async function PATCH(req: Request, { params }: Params) {
 
   try {
     const { repo, userId, mode } = await getRepository();
-    const asset = await repo.updateAsset(userId, id, parsed.data);
+    const current = (await repo.listAssets(userId)).find((asset) => asset.id === id);
+    if (!current) {
+      return NextResponse.json({ error: "资产不存在或无权访问" }, { status: 404 });
+    }
+    const merged = AssetInputSchema.safeParse({ ...current, ...parsed.data });
+    if (!merged.success) {
+      return NextResponse.json(
+        { error: "更新后的资产数据不合法", issues: merged.error.flatten().fieldErrors },
+        { status: 400 },
+      );
+    }
+    const asset = await repo.updateAsset(userId, id, merged.data);
     if (!asset) {
       return NextResponse.json({ error: "资产不存在或无权访问" }, { status: 404 });
     }

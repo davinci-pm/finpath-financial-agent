@@ -5,7 +5,9 @@ import { AuthRequiredError, getRepository } from "@/lib/server/repository";
 type Params = { params: Promise<{ id: string }> };
 
 const ConfirmSchema = z.object({
-  confirmed: z.record(z.string(), z.string()),
+  confirmed: z
+    .record(z.string(), z.string().trim().min(1).max(500))
+    .refine((value) => Object.keys(value).length > 0, "至少确认一个字段"),
 });
 
 /**
@@ -30,6 +32,21 @@ export async function PATCH(req: Request, { params }: Params) {
     const doc = await repo.getDocument(userId, id);
     if (!doc) {
       return NextResponse.json({ error: "文档不存在或无权访问" }, { status: 404 });
+    }
+    const current = await repo.getExtraction(userId, id);
+    if (!current || doc.status !== "awaiting_confirmation") {
+      return NextResponse.json({ error: "请先完成文档分析再确认字段" }, { status: 409 });
+    }
+    const expectedKeys = new Set(current.fields.map((field) => field.key));
+    const confirmedKeys = Object.keys(parsed.data.confirmed);
+    if (
+      confirmedKeys.length !== expectedKeys.size ||
+      confirmedKeys.some((key) => !expectedKeys.has(key))
+    ) {
+      return NextResponse.json(
+        { error: "请确认全部提取字段，且不要提交未知字段" },
+        { status: 400 },
+      );
     }
     const extraction = await repo.confirmExtraction(userId, id, parsed.data.confirmed);
     return NextResponse.json({ extraction, mode });

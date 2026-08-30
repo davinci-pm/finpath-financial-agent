@@ -8,10 +8,11 @@ import type { DocumentField } from "@/lib/types";
 
 export type DocumentFieldRowProps = {
   field: DocumentField;
+  onChange?: (value: string) => void;
 };
 
 /** P04 字段确认行：label + 可编辑值 + 来源状态 + 页码/原文/置信度 */
-export function DocumentFieldRow({ field }: DocumentFieldRowProps) {
+export function DocumentFieldRow({ field, onChange }: DocumentFieldRowProps) {
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(field.value);
 
@@ -22,7 +23,10 @@ export function DocumentFieldRow({ field }: DocumentFieldRowProps) {
         {editing ? (
           <Input
             value={value}
-            onChange={(e) => setValue(e.target.value)}
+            onChange={(e) => {
+              setValue(e.target.value);
+              onChange?.(e.target.value);
+            }}
             onBlur={() => setEditing(false)}
             onKeyDown={(e) => e.key === "Enter" && setEditing(false)}
             autoFocus

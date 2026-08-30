@@ -140,6 +140,13 @@ export default function DocumentNewPage() {
                       <DocumentFieldRow
                         key={f.key}
                         field={f}
+                        onChange={(value) =>
+                          setFields((current) =>
+                            current.map((field) =>
+                              field.key === f.key ? { ...field, value } : field,
+                            ),
+                          )
+                        }
                       />
                     ))}
                   </div>

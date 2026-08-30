@@ -43,8 +43,8 @@ pnpm dev              # 开发服务器 http://localhost:3000
 ```bash
 pnpm lint          # ESLint
 pnpm typecheck     # TypeScript strict
-pnpm test          # Vitest 单元测试（59 用例）
-pnpm test:e2e      # Playwright（52 用例，含 1440×960 截图、1280×800 无溢出、双主链路）
+pnpm test          # Vitest 单元与规则测试（386 用例）
+pnpm test:e2e      # Playwright（105 用例，含桌面截图、移动端、API 边界与双主链路）
 pnpm build         # 生产构建
 ```
 

@@ -415,6 +415,13 @@ export class DemoRepository implements FinPathRepository {
     const task = this.tasks.find((t) => t.id === id);
     if (!task) return null;
     task.status = status;
+    if (status === "completed") {
+      task.steps.forEach((step) => {
+        step.status = "done";
+      });
+      task.progressCurrent = task.progressTotal;
+      task.nextAction = "任务已完成";
+    }
     task.updatedAt = new Date().toISOString().slice(0, 10);
     return task;
   }
@@ -430,7 +437,17 @@ export class DemoRepository implements FinPathRepository {
     if (!step) return null;
     step.status = "done";
     task.progressCurrent = task.steps.filter((s) => s.status === "done").length;
-    if (task.progressCurrent >= task.progressTotal) task.status = "completed";
+    const nextStep = task.steps.find((s) => s.status !== "done");
+    if (task.progressCurrent >= task.progressTotal) {
+      task.status = "completed";
+      task.nextAction = "任务已完成";
+    } else {
+      task.status = "in_progress";
+      if (nextStep) {
+        nextStep.status = "doing";
+        task.nextAction = nextStep.title;
+      }
+    }
     task.updatedAt = new Date().toISOString().slice(0, 10);
     return task;
   }
@@ -781,9 +798,23 @@ export class SupabaseRepository implements FinPathRepository {
     id: string,
     status: TaskStatus,
   ): Promise<Task | null> {
+    const task = await this.getTask(userId, id);
+    if (!task) return null;
+    if (status === "completed" && task.steps.length > 0) {
+      const { error: stepsError } = await this.client
+        .from("task_steps")
+        .update({ status: "done", completed_at: new Date().toISOString() })
+        .eq("task_id", id);
+      if (stepsError) throw new Error(`updateTaskStatus steps 失败: ${stepsError.message}`);
+    }
     const { data, error } = await this.client
       .from("tasks")
-      .update({ status })
+      .update({
+        status,
+        ...(status === "completed"
+          ? { progress_current: task.progressTotal, next_action: "任务已完成" }
+          : {}),
+      })
       .eq("id", id)
       .eq("user_id", userId)
       .select()
@@ -813,11 +844,21 @@ export class SupabaseRepository implements FinPathRepository {
 
     const doneCount = task.steps.filter((s) => s.id === stepId || s.status === "done").length;
     const allDone = doneCount >= task.progressTotal;
+    const nextStep = task.steps.find((s) => s.id !== stepId && s.status !== "done");
+    if (nextStep && !allDone) {
+      const { error: nextError } = await this.client
+        .from("task_steps")
+        .update({ status: "doing" })
+        .eq("id", nextStep.id)
+        .eq("task_id", taskId);
+      if (nextError) throw new Error(`completeStep next 失败: ${nextError.message}`);
+    }
     const { data, error } = await this.client
       .from("tasks")
       .update({
         progress_current: doneCount,
         status: allDone ? "completed" : "in_progress",
+        next_action: allDone ? "任务已完成" : nextStep?.title ?? task.nextAction,
       })
       .eq("id", taskId)
       .eq("user_id", userId)

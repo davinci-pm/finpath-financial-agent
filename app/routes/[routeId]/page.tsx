@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import Link from "next/link";
+import { useEffect, useState } from "react";
 import { Check, ChevronDown, Clock, ExternalLink, MapPin } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,6 +24,21 @@ export default function RoutePage() {
   const [checked, setChecked] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(route.steps.flatMap((s) => s.checklist.map((c) => [c.id, c.done]))),
   );
+  const [showFees, setShowFees] = useState(false);
+  const [showAlternatives, setShowAlternatives] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try {
+        const stored = localStorage.getItem(`finpath:route:${route.id}`);
+        if (stored) setChecked((current) => ({ ...current, ...JSON.parse(stored) }));
+      } catch {
+        // 忽略损坏的本地进度。
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [route.id]);
 
   const toggle = (id: string) => setExpanded((cur) => (cur === id ? null : id));
 
@@ -35,8 +51,8 @@ export default function RoutePage() {
         </span>
       }
       actions={
-        <Button variant="outline" size="sm" className="rounded-xl">
-          修改条件
+        <Button variant="outline" size="sm" className="rounded-xl" asChild>
+          <Link href="/ask">重新描述需求</Link>
         </Button>
       }
     >
@@ -97,7 +113,12 @@ export default function RoutePage() {
                         <li key={c.id}>
                           <button
                             type="button"
-                            onClick={() => setChecked((prev) => ({ ...prev, [c.id]: !prev[c.id] }))}
+                            onClick={() => setChecked((prev) => {
+                              const next = { ...prev, [c.id]: !prev[c.id] };
+                              localStorage.setItem(`finpath:route:${route.id}`, JSON.stringify(next));
+                              setSaved(false);
+                              return next;
+                            })}
                             className="flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
                             aria-pressed={checked[c.id]}
                           >
@@ -123,13 +144,10 @@ export default function RoutePage() {
                       ))}
                     </ul>
                     {s.officialEntry ? (
-                      <button
-                        type="button"
-                        className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
-                      >
+                      <span className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
                         <ExternalLink className="size-4" aria-hidden />
                         {s.officialEntry}
-                      </button>
+                      </span>
                     ) : null}
                   </div>
                 ) : null}
@@ -155,20 +173,26 @@ export default function RoutePage() {
             </CardContent>
           </Card>
 
-          <Card className="rounded-2xl bg-card shadow-card">
-            <CardHeader>
-              <CardTitle className="text-[16px] font-semibold text-foreground">可能费用</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {route.possibleFees.map((f) => (
-                <p key={f} className="flex items-start gap-2 text-sm leading-relaxed text-foreground">
-                  <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-warning" aria-hidden />
-                  {f}
-                </p>
-              ))}
-              <p className="pt-1 text-xs text-muted-foreground">具体金额以机构核验为准，不承诺价格。</p>
-            </CardContent>
-          </Card>
+          <Button variant="outline" className="w-full justify-between rounded-xl" onClick={() => setShowFees((value) => !value)}>
+            查看费用说明
+            <ChevronDown className={cn("size-4 transition-transform", showFees && "rotate-180")} aria-hidden />
+          </Button>
+          {showFees ? (
+            <Card className="rounded-2xl bg-card shadow-card">
+              <CardHeader>
+                <CardTitle className="text-[16px] font-semibold text-foreground">可能费用</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {route.possibleFees.map((f) => (
+                  <p key={f} className="flex items-start gap-2 text-sm leading-relaxed text-foreground">
+                    <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-warning" aria-hidden />
+                    {f}
+                  </p>
+                ))}
+                <p className="pt-1 text-xs text-muted-foreground">具体金额以机构核验为准，不承诺价格。</p>
+              </CardContent>
+            </Card>
+          ) : null}
 
           <Card className="rounded-2xl bg-card shadow-card">
             <CardHeader>
@@ -184,19 +208,25 @@ export default function RoutePage() {
             </CardContent>
           </Card>
 
-          <Card className="rounded-2xl bg-card shadow-card">
-            <CardHeader>
-              <CardTitle className="text-[16px] font-semibold text-foreground">备用路径</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {route.alternatives.map((a) => (
-                <p key={a} className="flex items-start gap-2 text-sm leading-relaxed text-foreground">
-                  <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-primary" aria-hidden />
-                  {a}
-                </p>
-              ))}
-            </CardContent>
-          </Card>
+          <Button variant="outline" className="w-full justify-between rounded-xl" onClick={() => setShowAlternatives((value) => !value)}>
+            查看备用方案
+            <ChevronDown className={cn("size-4 transition-transform", showAlternatives && "rotate-180")} aria-hidden />
+          </Button>
+          {showAlternatives ? (
+            <Card className="rounded-2xl bg-card shadow-card">
+              <CardHeader>
+                <CardTitle className="text-[16px] font-semibold text-foreground">备用路径</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {route.alternatives.map((a) => (
+                  <p key={a} className="flex items-start gap-2 text-sm leading-relaxed text-foreground">
+                    <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-primary" aria-hidden />
+                    {a}
+                  </p>
+                ))}
+              </CardContent>
+            </Card>
+          ) : null}
 
           <p className="flex items-center gap-1.5 px-1 text-xs text-muted-foreground">
             <MapPin className="size-3.5" aria-hidden />
@@ -207,8 +237,13 @@ export default function RoutePage() {
 
       {/* 底部操作 */}
       <div className="mt-6 flex flex-wrap items-center gap-3">
-        <Button className="rounded-xl px-7">保存进度</Button>
-        <Button variant="outline" className="rounded-xl px-7">问 AI 一个细节</Button>
+        <Button className="rounded-xl px-7" onClick={() => {
+          localStorage.setItem(`finpath:route:${route.id}`, JSON.stringify(checked));
+          setSaved(true);
+        }}>{saved ? "进度已保存" : "保存进度"}</Button>
+        <Button variant="outline" className="rounded-xl px-7" asChild>
+          <Link href="/ask">问 AI 一个细节</Link>
+        </Button>
       </div>
     </AppShell>
   );

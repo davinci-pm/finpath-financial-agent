@@ -114,7 +114,7 @@ describe("计划生成：规则先行，模型解释", () => {
     expect(fetched?.id).toBe(plan.id);
   });
 
-  it("高息负债场景：区间收窄，Mock 固定输出超出区间时被安全校验拒绝", async () => {
+  it("高息负债场景：区间收窄，Mock 按规则区间生成保守方案", async () => {
     const repo = new DemoRepository();
     const session = await repo.createDiagnosisSession(USER, {
       rawQuestion: "有信用卡分期，年终奖怎么安排？",
@@ -129,8 +129,10 @@ describe("计划生成：规则先行，模型解释", () => {
         incomeStability: "low",
       },
     });
-    // 该场景下 learning 区间为 [0,5]，Mock 固定输出 20% 应被拒绝
-    await expect(generatePlan(repo, USER, session)).rejects.toBeInstanceOf(UnsafeOutputError);
+    const plan = await generatePlan(repo, USER, session);
+    expect(plan.hardConstraints.some((item) => item.includes("优先偿还负债"))).toBe(true);
+    expect(plan.buckets.find((bucket) => bucket.key === "learning")?.percentage).toBeLessThanOrEqual(5);
+    expect(plan.buckets.reduce((sum, bucket) => sum + bucket.percentage, 0)).toBe(100);
   });
 });
 
