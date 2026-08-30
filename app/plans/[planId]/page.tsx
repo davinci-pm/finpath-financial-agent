@@ -6,6 +6,7 @@ import { ActionChecklist } from "@/components/finpath/action-checklist";
 import { AllocationCard } from "@/components/finpath/allocation-card";
 import { ConclusionCard } from "@/components/finpath/conclusion-card";
 import { RiskNotice } from "@/components/finpath/risk-notice";
+import { SavePlanTask } from "@/components/finpath/save-plan-task";
 import { SourceBadge } from "@/components/finpath/source-badge";
 import { MOCK_PLAN } from "@/lib/mock-data";
 
@@ -163,14 +164,20 @@ export default async function PlanPage({
           </CardContent>
         </Card>
 
-        {/* 主操作 */}
+        {/* 主操作：保存为任务（POST /api/tasks → 跳转 P10） */}
         <div className="flex flex-wrap items-center gap-3 pt-2">
-          <Button size="lg" className="gap-1.5 rounded-xl px-7" asChild>
-            <Link href="/tasks">
-              保存为我的金融任务
-              <ArrowRight className="size-4" aria-hidden />
-            </Link>
-          </Button>
+          <SavePlanTask
+            planId={planId}
+            title="安排 3 万元闲钱"
+            summary={plan.summary}
+            nextAction={plan.actionItems[0]?.title}
+            steps={plan.actionItems.map((a) => ({ title: a.title }))}
+            size="lg"
+            className="gap-1.5 rounded-xl px-7"
+          >
+            保存为我的金融任务
+            <ArrowRight className="size-4" aria-hidden />
+          </SavePlanTask>
           <Button size="lg" variant="outline" className="rounded-xl px-7" asChild>
             <Link href="/diagnosis/demo-session">继续追问</Link>
           </Button>

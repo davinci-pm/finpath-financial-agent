@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { use, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Check,
@@ -17,31 +17,97 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AppShell } from "@/components/layout/app-shell";
 import { ProgressBar } from "@/components/finpath/progress-bar";
 import { RiskNotice } from "@/components/finpath/risk-notice";
+import { SkeletonState } from "@/components/finpath/skeleton-state";
+import { ErrorState } from "@/components/finpath/error-state";
 import { SourceBadge } from "@/components/finpath/source-badge";
-import { MOCK_PEER_EXPERIENCES, MOCK_TASK_DETAIL } from "@/lib/mock-data";
+import { MOCK_PEER_EXPERIENCES } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
-import type { TaskStep } from "@/lib/types";
+import { completeTaskStep, fetchTask } from "@/lib/api-client";
+import type { Task, TaskStep, TaskStepStatus } from "@/lib/types";
 
 /**
  * P11 金融任务详情与相似经验
- * 官方依据优先于个人经验；完成步骤后进度立即更新；相似经验明确标注"个人经验"。
- * 参考：P11-task-detail.png
+ * 数据来自 GET /api/tasks/:id；完成步骤 → PATCH 步骤 API，进度立即更新（P10/P11 一致）。
  */
-export default function TaskDetailPage() {
-  const task = MOCK_TASK_DETAIL;
-  const [stepStatuses, setStepStatuses] = useState<Record<string, TaskStep["status"]>>(() =>
-    Object.fromEntries(task.steps.map((s) => [s.id, s.status])),
-  );
-  const [expandedStep, setExpandedStep] = useState<string | null>(
-    task.steps.find((s) => s.status === "doing")?.id ?? null,
-  );
+export default function TaskDetailPage({
+  params,
+}: {
+  params: Promise<{ taskId: string }>;
+}) {
+  const { taskId } = use(params);
+  const [task, setTask] = useState<Task | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [stepStatuses, setStepStatuses] = useState<Record<string, TaskStepStatus>>({});
+  const [expandedStep, setExpandedStep] = useState<string | null>(null);
+
+  const reload = useCallback(async () => {
+    try {
+      const t = await fetchTask(taskId);
+      setTask(t);
+      setStepStatuses(Object.fromEntries(t.steps.map((s) => [s.id, s.status])));
+      setExpandedStep(t.steps.find((s) => s.status === "doing")?.id ?? null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "加载失败");
+    } finally {
+      setLoading(false);
+    }
+  }, [taskId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const t = await fetchTask(taskId);
+        if (cancelled) return;
+        setTask(t);
+        setStepStatuses(Object.fromEntries(t.steps.map((s) => [s.id, s.status])));
+        setExpandedStep(t.steps.find((s) => s.status === "doing")?.id ?? null);
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : "加载失败");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [taskId]);
+
+  const completeStep = async (stepId: string) => {
+    if (!task) return;
+    // 乐观更新
+    setStepStatuses((prev) => ({ ...prev, [stepId]: "done" }));
+    try {
+      const updated = await completeTaskStep(task.id, stepId);
+      setTask(updated);
+      setStepStatuses(Object.fromEntries(updated.steps.map((s) => [s.id, s.status])));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "步骤更新失败");
+      await reload();
+    }
+  };
+
+  if (loading && !task) {
+    return (
+      <AppShell title="任务详情">
+        <SkeletonState rows={5} className="mt-6" />
+      </AppShell>
+    );
+  }
+
+  if (error && !task) {
+    return (
+      <AppShell title="任务详情">
+        <ErrorState description={error} onRetry={reload} className="mt-6" />
+      </AppShell>
+    );
+  }
+
+  if (!task) return null;
 
   const doneCount = task.steps.filter((s) => stepStatuses[s.id] === "done").length;
   const percent = Math.round((doneCount / Math.max(task.steps.length, 1)) * 100);
-
-  const completeStep = (stepId: string) => {
-    setStepStatuses((prev) => ({ ...prev, [stepId]: "done" }));
-  };
 
   return (
     <AppShell
@@ -65,26 +131,20 @@ export default function TaskDetailPage() {
         </Link>
         <ChevronRight className="size-3.5" aria-hidden />
         <span className="text-foreground">{task.title}</span>
-        <Badge className="ml-2 rounded-full bg-primary-soft text-primary">进行中</Badge>
+        <Badge className="ml-2 rounded-full bg-primary-soft text-primary">
+          {task.status === "completed" ? "已完成" : task.status === "pending" ? "待处理" : "进行中"}
+        </Badge>
       </nav>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[760px_1fr]">
         {/* 左：任务主体 */}
         <section className="space-y-5">
-          {/* 目标与条件 */}
           <Card className="rounded-2xl bg-card shadow-card">
             <CardContent className="p-6">
               <h2 className="text-[17px] font-semibold text-foreground">任务目标</h2>
-              <p className="mt-1.5 text-[15px] leading-relaxed text-muted-foreground">{task.summary}</p>
-              {task.conditions ? (
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {task.conditions.map((c) => (
-                    <span key={c.label} className="rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground">
-                      {c.label}：<span className="font-medium text-foreground">{c.value}</span>
-                    </span>
-                  ))}
-                </div>
-              ) : null}
+              <p className="mt-1.5 text-[15px] leading-relaxed text-muted-foreground">
+                {task.summary ?? "逐步完成以下行动清单。"}
+              </p>
               <div className="mt-5 flex items-center gap-3">
                 <ProgressBar value={percent} className="flex-1" />
                 <span className="font-number text-sm font-medium text-muted-foreground">
@@ -100,15 +160,19 @@ export default function TaskDetailPage() {
               <CardTitle className="text-[17px] font-semibold text-foreground">行动清单</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {task.steps.map((s) => {
+              {task.steps.map((s: TaskStep) => {
                 const open = expandedStep === s.id;
-                const status = stepStatuses[s.id];
+                const status = stepStatuses[s.id] ?? s.status;
                 return (
                   <div
                     key={s.id}
                     className={cn(
                       "rounded-xl border",
-                      status === "done" ? "border-border bg-muted/40" : open ? "border-primary/40 bg-white" : "border-border bg-white",
+                      status === "done"
+                        ? "border-border bg-muted/40"
+                        : open
+                          ? "border-primary/40 bg-white"
+                          : "border-border bg-white",
                     )}
                   >
                     <button
@@ -135,32 +199,31 @@ export default function TaskDetailPage() {
                           >
                             {s.title}
                           </p>
-                          {status === "doing" ? (
-                            <p className="text-xs text-primary">进行中</p>
-                          ) : null}
+                          {status === "doing" ? <p className="text-xs text-primary">进行中</p> : null}
                         </div>
                       </div>
-                      <span className="text-xs text-muted-foreground">约 {s.estimatedMinutes} 分钟</span>
+                      {s.estimatedMinutes ? (
+                        <span className="text-xs text-muted-foreground">约 {s.estimatedMinutes} 分钟</span>
+                      ) : null}
                     </button>
 
                     {open ? (
                       <div className="border-t border-border px-4 py-4">
-                        <p className="text-sm leading-relaxed text-muted-foreground">{s.description}</p>
-                        {s.checklist ? (
-                          <ul className="mt-3 space-y-2">
-                            {s.checklist.map((c) => (
-                              <li key={c.id} className="flex items-center gap-2.5 text-sm text-foreground">
-                                <span className="size-1.5 rounded-full bg-primary" aria-hidden />
-                                {c.label}
-                              </li>
-                            ))}
-                          </ul>
+                        {s.description ? (
+                          <p className="text-sm leading-relaxed text-muted-foreground">{s.description}</p>
                         ) : null}
                         <div className="mt-4 flex flex-wrap items-center gap-3">
-                          <Button size="sm" className="gap-1.5 rounded-xl" onClick={() => completeStep(s.id)}>
-                            <Check className="size-4" aria-hidden />
-                            完成这一步
-                          </Button>
+                          {status !== "done" ? (
+                            <Button size="sm" className="gap-1.5 rounded-xl" onClick={() => completeStep(s.id)}>
+                              <Check className="size-4" aria-hidden />
+                              完成这一步
+                            </Button>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 text-sm font-medium text-primary">
+                              <Check className="size-4" aria-hidden />
+                              已完成
+                            </span>
+                          )}
                           {s.officialEntry ? (
                             <span className="inline-flex items-center gap-1.5 text-sm font-medium text-primary">
                               <ExternalLink className="size-4" aria-hidden />
@@ -168,7 +231,6 @@ export default function TaskDetailPage() {
                             </span>
                           ) : null}
                         </div>
-                        {/* 备注区 */}
                         <textarea
                           placeholder="备注：例如核验到的费率信息…"
                           rows={2}
@@ -191,11 +253,15 @@ export default function TaskDetailPage() {
               <CardTitle className="text-[16px] font-semibold text-foreground">任务资料</CardTitle>
             </CardHeader>
             <CardContent className="flex flex-wrap gap-2">
-              {task.materials?.map((m) => (
-                <Badge key={m} variant="secondary" className="rounded-full">
-                  {m}
-                </Badge>
-              ))}
+              {task.materials?.length ? (
+                task.materials.map((m) => (
+                  <Badge key={m} variant="secondary" className="rounded-full">
+                    {m}
+                  </Badge>
+                ))
+              ) : (
+                <p className="text-sm text-muted-foreground">暂无资料（以官方要求为准）。</p>
+              )}
             </CardContent>
           </Card>
 
@@ -203,11 +269,11 @@ export default function TaskDetailPage() {
             <CardContent className="space-y-3 p-6 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">适用地区</span>
-                <span className="font-medium text-foreground">{task.region}</span>
+                <span className="font-medium text-foreground">{task.region ?? "待确认"}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">最后核验时间</span>
-                <span className="font-number font-medium text-foreground">{task.lastVerifiedAt}</span>
+                <span className="font-number font-medium text-foreground">{task.lastVerifiedAt ?? task.updatedAt}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">来源状态</span>
@@ -220,15 +286,13 @@ export default function TaskDetailPage() {
         </aside>
       </div>
 
-      {/* 相似经验 */}
+      {/* 相似经验（Mock，阶段 6 前保持静态） */}
       <section className="mt-8">
         <div className="flex items-center gap-2.5">
           <h2 className="section-title text-foreground">和你情况相近的真实经验</h2>
           <SourceBadge type="personal" />
         </div>
-        <p className="mt-1 text-sm text-muted-foreground">
-          个人经历仅供参考，规则与费用可能已变化。
-        </p>
+        <p className="mt-1 text-sm text-muted-foreground">个人经历仅供参考，规则与费用可能已变化。</p>
         <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
           {MOCK_PEER_EXPERIENCES.map((pe) => (
             <Card key={pe.id} className="rounded-2xl bg-card shadow-card">

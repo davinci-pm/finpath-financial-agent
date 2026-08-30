@@ -129,7 +129,7 @@ export type TaskStep = {
   id: string;
   position: number;
   title: string;
-  description: string;
+  description?: string;
   status: TaskStepStatus;
   estimatedMinutes?: number;
   checklist?: Array<{ id: string; label: string; done: boolean }>;

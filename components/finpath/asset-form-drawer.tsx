@@ -17,10 +17,11 @@ import type { AssetKind } from "@/lib/types";
 export type AssetFormDrawerProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** 保存回调（阶段 2 返回模拟数据；阶段 3 接入 API） */
+  /** 保存回调（阶段 3 已接入 POST /api/assets） */
   onSave?: (data: {
     kind: AssetKind;
     category: string;
+    label: string;
     amountMin?: number;
     amountMax?: number;
     amountExact?: number;
@@ -64,6 +65,7 @@ export function AssetFormDrawer({ open, onOpenChange, onSave }: AssetFormDrawerP
     onSave?.({
       kind,
       category,
+      label: category,
       amountExact: amountMode === "exact" && amountExact ? Number(amountExact) : undefined,
       amountMin: amountMode === "range" && amountMin ? Number(amountMin) : undefined,
       amountMax: amountMode === "range" && amountMax ? Number(amountMax) : undefined,

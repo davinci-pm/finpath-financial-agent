@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
@@ -21,8 +21,11 @@ import { AssetFormDrawer } from "@/components/finpath/asset-form-drawer";
 import { AssetSummaryCard } from "@/components/finpath/asset-summary-card";
 import { ProgressBar } from "@/components/finpath/progress-bar";
 import { RiskNotice } from "@/components/finpath/risk-notice";
+import { SkeletonState } from "@/components/finpath/skeleton-state";
 import { TaskCard } from "@/components/finpath/task-card";
-import { MOCK_MONEY_MAP, MOCK_TASKS } from "@/lib/mock-data";
+import { ErrorState } from "@/components/finpath/error-state";
+import { createAsset, fetchMoneyMap, fetchTasks } from "@/lib/api-client";
+import type { MoneyMap, Task } from "@/lib/types";
 
 const CHART_COLORS = ["#276B5D", "#6E9E8E", "#D7953F", "#8FA8A0", "#C65B5B"];
 
@@ -30,8 +33,7 @@ const formatCNY = (n: number) => `¥${n.toLocaleString("zh-CN")}`;
 
 /**
  * P08 我的资金地图 / 个人金融驾驶舱（client 视图）
- * 金额隐藏开关不改变真实数据；P09 通过 ?drawer=add-asset 打开右侧抽屉。
- * 参考：P08-money-map.png、P09-add-asset-drawer.png
+ * 数据来自 GET /api/money-map；P09 保存资产后立即重新拉取聚合（P09→P08 闭环）。
  */
 export function MoneyMapView() {
   const searchParams = useSearchParams();
@@ -39,23 +41,71 @@ export function MoneyMapView() {
     searchParams.get("drawer") === "add-asset",
   );
   const [hideAmounts, setHideAmounts] = useState(false);
+  const [map, setMap] = useState<MoneyMap | null>(null);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [savedNotice, setSavedNotice] = useState(false);
 
-  const map = MOCK_MONEY_MAP;
+  const reload = useCallback(async () => {
+    try {
+      const [mapData, tasksData] = await Promise.all([fetchMoneyMap(), fetchTasks()]);
+      setMap(mapData);
+      setTasks(tasksData);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "加载失败");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // 初始加载：异步取数，避免 effect 内同步 setState
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [mapData, tasksData] = await Promise.all([fetchMoneyMap(), fetchTasks()]);
+        if (cancelled) return;
+        setMap(mapData);
+        setTasks(tasksData);
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : "加载失败");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const hide = (v: string) => (hideAmounts ? "¥•••" : v);
 
-  const chartData = useMemo(
-    () =>
-      map.assets.map((a, i) => ({
-        name: a.category,
-        value: a.amountExact ?? Math.round(((a.amountMin ?? 0) + (a.amountMax ?? 0)) / 2),
-        color: CHART_COLORS[i % CHART_COLORS.length],
-      })),
-    [map.assets],
-  );
+  if (loading && !map) {
+    return (
+      <AppShell title="我的资金地图">
+        <SkeletonState rows={5} className="mt-6" />
+      </AppShell>
+    );
+  }
 
-  const inProgressTasks = MOCK_TASKS.filter((t) => t.status === "in_progress");
+  if (error && !map) {
+    return (
+      <AppShell title="我的资金地图">
+        <ErrorState description={error} onRetry={reload} className="mt-6" />
+      </AppShell>
+    );
+  }
+
+  const chartData = (map?.assets ?? []).map((a, i) => ({
+    name: a.category,
+    value:
+      a.amountExact ??
+      Math.round(((a.amountMin ?? 0) + (a.amountMax ?? 0)) / 2),
+    color: CHART_COLORS[i % CHART_COLORS.length],
+  }));
+
+  const inProgressTasks = tasks.filter((t) => t.status === "in_progress");
 
   return (
     <AppShell
@@ -65,33 +115,26 @@ export function MoneyMapView() {
         <>
           <label className="flex items-center gap-2 text-sm text-muted-foreground">
             隐藏金额
-            <Switch
-              checked={hideAmounts}
-              onCheckedChange={setHideAmounts}
-              aria-label="隐藏金额"
-            />
+            <Switch checked={hideAmounts} onCheckedChange={setHideAmounts} aria-label="隐藏金额" />
           </label>
-          <span className="hidden text-sm text-muted-foreground md:inline">更新于今天</span>
-          <Button variant="outline" size="sm" className="gap-1.5 rounded-xl">
+          <span className="hidden text-sm text-muted-foreground md:inline">
+            更新于 {map?.updatedAt ?? "今天"}
+          </span>
+          <Button variant="outline" size="sm" className="gap-1.5 rounded-xl" onClick={reload}>
             <RefreshCw className="size-4" aria-hidden />
             用一分钟更新
           </Button>
         </>
       }
     >
-      {/* 顶部 AI 输入框 */}
-      <AIQuestionInput
-        placeholder="现在最想解决什么金融问题？"
-        attachmentHint=""
-        className="mb-6"
-      />
+      <AIQuestionInput placeholder="现在最想解决什么金融问题？" attachmentHint="" className="mb-6" />
 
       {/* 指标卡 */}
       <section className="grid grid-cols-2 gap-4 lg:grid-cols-4" aria-label="资金指标">
-        <AssetSummaryCard label="总资产" value={hide(formatCNY(map.totalAssets))} icon={Wallet} />
-        <AssetSummaryCard label="总负债" value={hide(formatCNY(map.totalLiabilities))} icon={Landmark} tone="warning" />
-        <AssetSummaryCard label="净资产" value={hide(formatCNY(map.netAssets))} icon={PiggyBank} />
-        <AssetSummaryCard label="应急覆盖" value={`${map.emergencyCoverageMonths} 个月`} icon={Banknote} />
+        <AssetSummaryCard label="总资产" value={hide(formatCNY(map?.totalAssets ?? 0))} icon={Wallet} />
+        <AssetSummaryCard label="总负债" value={hide(formatCNY(map?.totalLiabilities ?? 0))} icon={Landmark} tone="warning" />
+        <AssetSummaryCard label="净资产" value={hide(formatCNY(map?.netAssets ?? 0))} icon={PiggyBank} />
+        <AssetSummaryCard label="应急覆盖" value={`${map?.emergencyCoverageMonths ?? 0} 个月`} icon={Banknote} />
       </section>
 
       {/* 资产分布 + 财务目标 */}
@@ -101,37 +144,47 @@ export function MoneyMapView() {
             <CardTitle className="text-[18px] font-semibold text-foreground">资产分布</CardTitle>
           </CardHeader>
           <CardContent className="grid grid-cols-1 items-center gap-4 sm:grid-cols-2">
-            <div className="h-[220px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={chartData}
-                    dataKey="value"
-                    nameKey="name"
-                    innerRadius={58}
-                    outerRadius={88}
-                    paddingAngle={2}
-                    strokeWidth={0}
-                  >
-                    {chartData.map((entry) => (
-                      <Cell key={entry.name} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(v) => hide(formatCNY(Number(v)))} />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-            <ul className="space-y-2.5">
-              {chartData.map((d) => (
-                <li key={d.name} className="flex items-center justify-between gap-2 text-sm">
-                  <span className="flex items-center gap-2 text-muted-foreground">
-                    <span className="size-2.5 rounded-full" style={{ background: d.color }} aria-hidden />
-                    {d.name}
-                  </span>
-                  <span className="font-number font-medium text-foreground">{hide(formatCNY(d.value))}</span>
-                </li>
-              ))}
-            </ul>
+            {chartData.length > 0 ? (
+              <>
+                <div className="h-[220px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={chartData}
+                        dataKey="value"
+                        nameKey="name"
+                        innerRadius={58}
+                        outerRadius={88}
+                        paddingAngle={2}
+                        strokeWidth={0}
+                      >
+                        {chartData.map((entry) => (
+                          <Cell key={entry.name} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(v) => hide(formatCNY(Number(v)))} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <ul className="space-y-2.5">
+                  {chartData.map((d) => (
+                    <li key={d.name} className="flex items-center justify-between gap-2 text-sm">
+                      <span className="flex items-center gap-2 text-muted-foreground">
+                        <span className="size-2.5 rounded-full" style={{ background: d.color }} aria-hidden />
+                        {d.name}
+                      </span>
+                      <span className="font-number font-medium text-foreground">
+                        {hide(formatCNY(d.value))}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : (
+              <p className="col-span-2 py-10 text-center text-sm text-muted-foreground">
+                暂无资产，点击右上角「用一分钟更新」或添加一项资产开始。
+              </p>
+            )}
           </CardContent>
         </Card>
 
@@ -140,17 +193,21 @@ export function MoneyMapView() {
             <CardTitle className="text-[18px] font-semibold text-foreground">财务目标</CardTitle>
           </CardHeader>
           <CardContent className="space-y-5">
-            {map.goals.map((g) => (
-              <div key={g.id}>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-foreground">{g.title}</span>
-                  <span className="font-number text-muted-foreground">
-                    {hide(`${formatCNY(g.currentAmount)} / ${formatCNY(g.targetAmount)}`)}
-                  </span>
+            {map?.goals.length ? (
+              map.goals.map((g) => (
+                <div key={g.id}>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-foreground">{g.title}</span>
+                    <span className="font-number text-muted-foreground">
+                      {hide(`${formatCNY(g.currentAmount)} / ${formatCNY(g.targetAmount)}`)}
+                    </span>
+                  </div>
+                  <ProgressBar value={g.progress} showLabel className="mt-2" />
                 </div>
-                <ProgressBar value={g.progress} showLabel className="mt-2" />
-              </div>
-            ))}
+              ))
+            ) : (
+              <p className="py-6 text-center text-sm text-muted-foreground">暂无财务目标。</p>
+            )}
           </CardContent>
         </Card>
       </section>
@@ -162,13 +219,12 @@ export function MoneyMapView() {
             <CardTitle className="text-[18px] font-semibold text-foreground">AI 状态诊断</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {[
-              { text: "流动性：应急覆盖 3.2 个月，建议向 6 个月目标推进", tone: "warning" as const },
-              { text: "负债：房贷占净资产比例偏高，关注还款计划", tone: "warning" as const },
-              { text: "数据完整度：2 项资产信息待补充", tone: "info" as const },
-            ].map((d) => (
-              <RiskNotice key={d.text} text={d.text} tone={d.tone} />
-            ))}
+            <RiskNotice
+              text={`流动性：应急覆盖 ${map?.emergencyCoverageMonths ?? 0} 个月，建议向 6 个月目标推进`}
+              tone="warning"
+            />
+            <RiskNotice text="负债：房贷占净资产比例偏高，关注还款计划" tone="warning" />
+            <RiskNotice text="数据完整度：2 项资产信息待补充" tone="info" />
           </CardContent>
         </Card>
 
@@ -209,11 +265,19 @@ export function MoneyMapView() {
             </Link>
           </Button>
         </div>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          {inProgressTasks.map((t) => (
-            <TaskCard key={t.id} task={t} />
-          ))}
-        </div>
+        {inProgressTasks.length ? (
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {inProgressTasks.map((t) => (
+              <TaskCard key={t.id} task={t} />
+            ))}
+          </div>
+        ) : (
+          <Card className="rounded-2xl bg-card shadow-card">
+            <CardContent className="py-8 text-center text-sm text-muted-foreground">
+              暂无进行中的任务。
+            </CardContent>
+          </Card>
+        )}
       </section>
 
       {/* 保存成功提示 */}
@@ -223,11 +287,19 @@ export function MoneyMapView() {
         </p>
       ) : null}
 
-      {/* P09 添加资产抽屉 */}
+      {/* P09 添加资产抽屉：保存 → POST /api/assets → 刷新资金地图 */}
       <AssetFormDrawer
         open={drawerOpen}
         onOpenChange={setDrawerOpen}
-        onSave={() => setSavedNotice(true)}
+        onSave={async (data) => {
+          try {
+            await createAsset(data);
+            await reload();
+            setSavedNotice(true);
+          } catch (e) {
+            setError(e instanceof Error ? e.message : "保存失败");
+          }
+        }}
       />
     </AppShell>
   );

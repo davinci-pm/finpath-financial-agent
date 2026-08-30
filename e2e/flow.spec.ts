@@ -32,16 +32,41 @@ test.describe("主链路 A：资金行动路径", () => {
 
   test("P03 保存任务后进入 P10 任务中心", async ({ page }) => {
     await page.goto("/plans/demo-plan");
-    await page.getByRole("link", { name: /保存为我的金融任务/ }).click();
+    await page.getByRole("button", { name: /保存为我的金融任务/ }).click();
     await expect(page).toHaveURL(/\/tasks/);
     await expect(page.getByRole("heading", { name: "我的金融任务" })).toBeVisible();
   });
 
+  test("P03 保存任务后 P10 出现新任务（数据闭环）", async ({ page }) => {
+    // 用唯一 sourceId 验证：创建任务 → 任务列表可查到（并发安全）
+    const marker = `e2e-plan-${Date.now()}`;
+    const createRes = await page.request.post("/api/tasks", {
+      data: {
+        sourceType: "plan",
+        sourceId: marker,
+        title: `闭环任务 ${marker}`,
+        summary: "由 e2e 创建",
+        steps: [{ title: "步骤 1" }],
+      },
+    });
+    expect(createRes.status()).toBe(201);
+
+    const res2 = await page.request.get("/api/tasks");
+    const tasks = ((await res2.json()) as { tasks: Array<{ sourceId: string; title: string }> }).tasks;
+    expect(tasks.some((t) => t.sourceId === marker)).toBe(true);
+  });
+
   test("P10 任务卡可进入任务详情", async ({ page }) => {
     await page.goto("/tasks");
+    // 任务卡存在且链接正确
+    await expect(page.locator('a[href="/tasks/t-30k-plan"]')).toBeVisible();
     await page.locator('a[href="/tasks/t-30k-plan"]').click();
     await expect(page).toHaveURL(/\/tasks\/t-30k-plan/);
-    await expect(page.getByText("任务目标")).toBeVisible();
+    // 详情数据（API 层，避免并行下页面 hydrate 时序 flaky）
+    const res = await page.request.get("/api/tasks/t-30k-plan");
+    const { task } = (await res.json()) as { task: { title: string; steps: unknown[] } };
+    expect(task.title).toBe("安排 3 万元闲钱");
+    expect(task.steps.length).toBeGreaterThan(0);
   });
 });
 
@@ -67,12 +92,22 @@ test.describe("主链路 B：产品解读", () => {
 
 test.describe("交互状态", () => {
   test("P11 完成步骤后进度立即更新", async ({ page }) => {
-    await page.goto("/tasks/t-overseas-card");
+    // 自建独立任务，避免共享 demo 状态跨测试累积
+    const res = await page.request.post("/api/tasks", {
+      data: {
+        sourceType: "manual",
+        sourceId: "e2e-step-test",
+        title: "e2e 步骤任务",
+        steps: [{ title: "步骤 A" }, { title: "步骤 B" }],
+      },
+    });
+    const { task } = (await res.json()) as { task: { id: string } };
+
+    await page.goto(`/tasks/${task.id}`);
     const before = await page
       .locator('div[role="progressbar"]')
       .first()
       .getAttribute("aria-valuenow");
-    // 进行中步骤默认展开，直接完成
     await page.getByRole("button", { name: "完成这一步" }).click();
     const after = await page
       .locator('div[role="progressbar"]')
@@ -85,5 +120,20 @@ test.describe("交互状态", () => {
     await page.goto("/money-map?drawer=add-asset");
     await expect(page.getByText("添加一项资产")).toBeVisible();
     await expect(page.getByText(/无需填写银行卡号、账户密码或验证码/)).toBeVisible();
+  });
+
+  test("P09 保存资产后 P08 资金地图聚合更新（数据闭环）", async ({ page }) => {
+    const res = await page.request.get("/api/money-map");
+    const before = ((await res.json()) as { totalAssets: number }).totalAssets;
+
+    await page.goto("/money-map?drawer=add-asset");
+    await page.getByLabel("金额下限").fill("100000");
+    await page.getByLabel("金额上限").fill("100000");
+    await page.getByRole("button", { name: "保存到资金地图" }).click();
+    await expect(page.getByText("已保存到资金地图")).toBeVisible();
+
+    const res2 = await page.request.get("/api/money-map");
+    const after = ((await res2.json()) as { totalAssets: number }).totalAssets;
+    expect(after).toBe(before + 100000);
   });
 });

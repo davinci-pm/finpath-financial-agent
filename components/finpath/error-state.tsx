@@ -1,6 +1,7 @@
 import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 
 export type ErrorStateProps = {
   /** 错误标题 */
@@ -11,6 +12,7 @@ export type ErrorStateProps = {
   recoverable?: boolean;
   /** 重试回调 */
   onRetry?: () => void;
+  className?: string;
 };
 
 /**
@@ -22,9 +24,10 @@ export function ErrorState({
   description = "暂时无法完成操作，请稍后再试。",
   recoverable = true,
   onRetry,
+  className,
 }: ErrorStateProps) {
   return (
-    <Card className="border-destructive/20 bg-card">
+    <Card className={cn("border-destructive/20 bg-card", className)}>
       <CardContent className="flex flex-col items-center gap-4 py-10 text-center">
         <span className="flex size-12 items-center justify-center rounded-full bg-destructive/10">
           <AlertTriangle className="size-6 text-destructive" aria-hidden />
