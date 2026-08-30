@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { FileText, Loader2, UploadCloud, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -8,53 +8,48 @@ import { cn } from "@/lib/utils";
 export type UploadPhase = "idle" | "uploading" | "analyzing" | "done" | "failed";
 
 export type FileUploaderProps = {
-  /** 阶段状态变化回调（父组件据此切换右侧预览） */
-  onPhaseChange?: (phase: UploadPhase, fileName?: string) => void;
+  /** 文件选择/拖拽后触发（父组件执行真实上传与解析） */
+  onFileSelected: (file: File) => void;
+  /** 当前阶段（受控，由父组件驱动） */
+  phase: UploadPhase;
+  /** 已选文件名 */
+  fileName?: string;
+  /** 重新选择 */
+  onReset?: () => void;
+  /** 错误信息（failed 时展示） */
+  error?: string;
   className?: string;
 };
 
 const ACCEPTED = [".pdf", ".png", ".jpg", ".jpeg"];
 
 /**
- * P04 文件上传区：拖拽 / 选择文件，模拟 上传 → 解析 → 完成 状态。
- * 仅演示状态流转；真实上传与解析在阶段 5 接入 Supabase Storage 与 DocumentAnalyzer。
+ * P04 文件上传区：拖拽 / 选择文件。
+ * 上传与解析由父组件通过 onFileSelected 执行（POST /api/documents → analyze）。
  */
-export function FileUploader({ onPhaseChange, className }: FileUploaderProps) {
+export function FileUploader({
+  onFileSelected,
+  phase,
+  fileName,
+  onReset,
+  error,
+  className,
+}: FileUploaderProps) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [phase, setPhase] = useState<UploadPhase>("idle");
-  const [fileName, setFileName] = useState<string>();
   const [dragOver, setDragOver] = useState(false);
-
-  const setPhaseAndNotify = useCallback(
-    (p: UploadPhase, name?: string) => {
-      setPhase(p);
-      onPhaseChange?.(p, name);
-    },
-    [onPhaseChange],
-  );
 
   const handleFile = (file: File | undefined) => {
     if (!file) return;
     const ext = `.${file.name.split(".").pop()?.toLowerCase()}`;
     if (!ACCEPTED.includes(ext)) {
-      setPhaseAndNotify("failed");
+      onFileSelected(file); // 父组件负责 MIME/大小校验并置 failed
       return;
     }
-    setFileName(file.name);
-    setPhaseAndNotify("uploading", file.name);
-    // 模拟上传 + 解析流程（阶段 5 替换为真实流程）
-    setTimeout(() => setPhaseAndNotify("analyzing", file.name), 900);
-    setTimeout(() => setPhaseAndNotify("done", file.name), 1900);
-  };
-
-  const reset = () => {
-    setPhase("idle");
-    setFileName(undefined);
-    setPhaseAndNotify("idle");
-    if (inputRef.current) inputRef.current.value = "";
+    onFileSelected(file);
   };
 
   const busy = phase === "uploading" || phase === "analyzing";
+  const failed = phase === "failed";
 
   return (
     <div className={className}>
@@ -87,12 +82,15 @@ export function FileUploader({ onPhaseChange, className }: FileUploaderProps) {
           type="file"
           accept={ACCEPTED.join(",")}
           className="hidden"
-          onChange={(e) => handleFile(e.target.files?.[0])}
+          onChange={(e) => {
+            handleFile(e.target.files?.[0]);
+            if (inputRef.current) inputRef.current.value = "";
+          }}
         />
 
         {busy ? (
           <Loader2 className="size-9 animate-spin text-primary" aria-hidden />
-        ) : phase === "failed" ? (
+        ) : failed ? (
           <X className="size-9 text-destructive" aria-hidden />
         ) : (
           <UploadCloud className="size-9 text-primary" aria-hidden />
@@ -103,16 +101,16 @@ export function FileUploader({ onPhaseChange, className }: FileUploaderProps) {
             ? "正在上传…"
             : phase === "analyzing"
               ? "正在解析文件…"
-              : phase === "failed"
-                ? "文件格式不支持"
-                : phase === "done"
+              : failed
+                ? "上传或解析失败"
+                : phase === "done" && fileName
                   ? fileName
                   : "拖入产品截图或 PDF"}
         </p>
         <p className="mt-1.5 max-w-sm text-sm leading-relaxed text-muted-foreground">
-          {phase === "failed"
-            ? "仅支持 JPG、PNG、PDF，请重新选择。"
-            : "支持 JPG、PNG、PDF，建议先遮挡姓名、账号和身份证信息。"}
+          {failed && error
+            ? error
+            : "支持 JPG、PNG、PDF（≤20MB），建议先遮挡姓名、账号和身份证信息。"}
         </p>
 
         {phase !== "done" && phase !== "failed" ? (
@@ -127,7 +125,14 @@ export function FileUploader({ onPhaseChange, className }: FileUploaderProps) {
             )}
           </Button>
         ) : (
-          <Button variant="outline" className="mt-4 rounded-xl" onClick={reset}>
+          <Button
+            variant="outline"
+            className="mt-4 rounded-xl"
+            onClick={(e) => {
+              e.stopPropagation();
+              onReset?.();
+            }}
+          >
             重新选择
           </Button>
         )}

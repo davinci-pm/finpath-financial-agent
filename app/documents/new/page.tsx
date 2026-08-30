@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -9,17 +9,80 @@ import { AppShell } from "@/components/layout/app-shell";
 import { DocumentFieldRow } from "@/components/finpath/document-field-row";
 import { FileUploader, type UploadPhase } from "@/components/finpath/file-uploader";
 import { RiskNotice } from "@/components/finpath/risk-notice";
-import { MOCK_DOCUMENT } from "@/lib/mock-data";
+import {
+  analyzeDocument,
+  confirmExtraction,
+  uploadDocument,
+} from "@/lib/api-client";
+import type { DocumentField, ExtractionRecord } from "@/lib/types";
 
 /**
  * P04 金融产品上传与识别确认页
- * 上传状态：上传中 / 解析中 / 完成 / 失败；用户确认前不生成最终解读。
+ * 真实链路：上传（≤20MB，PDF/PNG/JPG）→ DocumentAnalyzer 提取 → 用户确认 → 生成解读。
  * 参考：P04-document-upload.png
  */
 export default function DocumentNewPage() {
   const router = useRouter();
   const [phase, setPhase] = useState<UploadPhase>("idle");
-  const [fileName, setFileName] = useState(MOCK_DOCUMENT.fileName);
+  const [fileName, setFileName] = useState<string>();
+  const [docId, setDocId] = useState<string | null>(null);
+  const [fields, setFields] = useState<DocumentField[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
+
+  const reset = useCallback(() => {
+    setPhase("idle");
+    setFileName(undefined);
+    setDocId(null);
+    setFields([]);
+    setError(null);
+  }, []);
+
+  const handleFileSelected = useCallback(
+    async (file: File) => {
+      setError(null);
+      const ext = `.${file.name.split(".").pop()?.toLowerCase()}`;
+      if (![".pdf", ".png", ".jpg", ".jpeg"].includes(ext)) {
+        setPhase("failed");
+        setError("仅支持 PDF、PNG、JPG 文件");
+        return;
+      }
+      if (file.size > 20 * 1024 * 1024) {
+        setPhase("failed");
+        setError("文件超过 20MB 限制");
+        return;
+      }
+      try {
+        setPhase("uploading");
+        setFileName(file.name);
+        const doc = await uploadDocument(file);
+        setDocId(doc.id);
+
+        setPhase("analyzing");
+        const extraction: ExtractionRecord = await analyzeDocument(doc.id);
+        setFields(extraction.fields);
+        setPhase("done");
+      } catch (e) {
+        setPhase("failed");
+        setError(e instanceof Error ? e.message : "上传或解析失败");
+      }
+    },
+    [],
+  );
+
+  const handleConfirm = async () => {
+    if (!docId) return;
+    setConfirming(true);
+    setError(null);
+    try {
+      const confirmed = Object.fromEntries(fields.map((f) => [f.key, f.value]));
+      await confirmExtraction(docId, confirmed);
+      router.push(`/documents/${docId}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "确认失败，请重试");
+      setConfirming(false);
+    }
+  };
 
   const done = phase === "done";
   const busy = phase === "uploading" || phase === "analyzing";
@@ -33,10 +96,11 @@ export default function DocumentNewPage() {
         {/* 左：上传区 */}
         <section>
           <FileUploader
-            onPhaseChange={(p, name) => {
-              setPhase(p);
-              if (name) setFileName(name);
-            }}
+            onFileSelected={handleFileSelected}
+            phase={phase}
+            fileName={fileName}
+            error={error ?? undefined}
+            onReset={reset}
           />
 
           <RiskNotice
@@ -72,21 +136,33 @@ export default function DocumentNewPage() {
               {done ? (
                 <>
                   <div className="divide-y divide-border">
-                    {MOCK_DOCUMENT.fields.map((f) => (
-                      <DocumentFieldRow key={f.key} field={f} />
+                    {fields.map((f) => (
+                      <DocumentFieldRow
+                        key={f.key}
+                        field={f}
+                      />
                     ))}
                   </div>
+                  {error ? (
+                    <p role="alert" className="mt-4 text-sm text-destructive">
+                      {error}
+                    </p>
+                  ) : null}
                   <div className="mt-5 flex flex-wrap gap-3">
                     <Button
                       className="flex-1 rounded-xl"
-                      onClick={() => router.push(`/documents/${MOCK_DOCUMENT.id}`)}
+                      onClick={handleConfirm}
+                      disabled={confirming}
                     >
-                      确认并生成解读
+                      {confirming ? "确认中…" : "确认并生成解读"}
                     </Button>
-                    <Button variant="outline" className="rounded-xl" onClick={() => setPhase("idle")}>
+                    <Button variant="outline" className="rounded-xl" onClick={reset}>
                       重新上传
                     </Button>
                   </div>
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    确认后才会生成最终解读；字段可逐项修改。
+                  </p>
                 </>
               ) : (
                 <div className="flex min-h-[200px] flex-col items-center justify-center rounded-xl bg-muted/50 text-center">

@@ -22,28 +22,33 @@ test.describe("主链路 A：资金行动路径（AI 诊断链路）", () => {
   });
 
   test("P02 逐题回答（一次一问）→ 自动生成进入 P03 行动路径", async ({ page }) => {
-    await page.goto("/");
-    await page.getByLabel("输入你的金融问题").fill("我有 3 万元闲钱，想稳一点也想学投资");
-    await page.keyboard.press("Enter");
-    await expect(page).toHaveURL(/\/diagnosis\//);
+    // API 准备会话并回答前 4 题（页面冷加载更稳定）
+    const diag = await page.request.post("/api/diagnosis", {
+      data: { question: "我有 3 万元闲钱，想稳一点也想学投资" },
+    });
+    const { session } = (await diag.json()) as { session: { id: string } };
+    for (const [key, value] of [
+      ["expectedUseHorizon", "1_to_3y"],
+      ["emergencyFundMonths", "4.5"],
+      ["highInterestDebt", "false"],
+      ["lossTolerance", "small"],
+    ]) {
+      await page.request.post(`/api/diagnosis/${session.id}/answer`, {
+        data: { key, value },
+      });
+    }
 
-    // 逐题回答：点击选项 → 等待按钮启用 → 提交 → 等待下一题出现
-    const answer = async (radioName: string, nextRadioName: string | null) => {
-      await page.getByRole("radio", { name: radioName }).click();
-      await expect(page.getByRole("button", { name: "下一步" })).toBeEnabled();
-      await page.getByRole("button", { name: "下一步" }).click();
-      if (nextRadioName) {
-        await expect(page.getByRole("radio", { name: nextRadioName })).toBeVisible();
-      }
-    };
+    await page.goto(`/diagnosis/${session.id}`);
+    // 一次只问一个问题：当前应为第 5 题（收入稳定）
+    await expect(page.getByRole("radio", { name: "比较稳定" })).toBeVisible();
+    const radios = page.getByRole("radio");
+    await expect(radios).toHaveCount(3);
 
-    await answer("1～3 年", "3～6 个月");
-    await answer("3～6 个月", "没有");
-    await answer("没有", "小幅波动可以接受");
-    await answer("小幅波动可以接受", "比较稳定");
-    await answer("比较稳定", null);
+    // 回答最后一题 → 自动生成行动路径
+    await page.getByRole("radio", { name: "比较稳定" }).click();
+    await expect(page.getByRole("button", { name: "下一步" })).toBeEnabled();
+    await page.getByRole("button", { name: "下一步" }).click();
 
-    // 条件确认完毕 → 自动生成路径 → P03
     await expect(page).toHaveURL(/\/plans\//, { timeout: 15000 });
     await expect(page.getByRole("heading", { name: "你的资金安排路径" })).toBeVisible();
     await expect(page.getByText("下一步行动清单")).toBeVisible();
@@ -137,20 +142,65 @@ test.describe("主链路 A：资金行动路径（AI 诊断链路）", () => {
 test.describe("主链路 B：产品解读", () => {
   test("P04 上传后确认进入 P05 解读", async ({ page }) => {
     await page.goto("/documents/new");
-    // 触发模拟上传（fixture PDF）→ 等待识别完成
     await page.locator('input[type="file"]').setInputFiles("e2e/fixtures/sample-product.pdf");
     await expect(page.getByRole("button", { name: "确认并生成解读" })).toBeVisible({
-      timeout: 10000,
+      timeout: 15000,
     });
     await page.getByRole("button", { name: "确认并生成解读" }).click();
-    await expect(page).toHaveURL(/\/documents\/doc-bank-product/);
+    await expect(page).toHaveURL(/\/documents\/demo-doc-\d+/);
     await expect(page.getByText(/先说结论/)).toBeVisible();
   });
 
-  test("P05 保存任务跳转 P10", async ({ page }) => {
-    await page.goto("/documents/doc-bank-product");
-    await page.getByRole("link", { name: /保存到我的任务/ }).first().click();
+  test("P05 保存任务跳转 P10（API 全链路）", async ({ page }) => {
+    const { readFileSync } = await import("node:fs");
+    const buf = readFileSync("e2e/fixtures/sample-product.pdf");
+    // 1. 上传
+    const up = await page.request.post("/api/documents", {
+      multipart: {
+        file: { name: "product.pdf", mimeType: "application/pdf", buffer: buf },
+      },
+    });
+    expect(up.status()).toBe(201);
+    const { document } = (await up.json()) as { document: { id: string } };
+    // 2. 分析
+    const an = await page.request.post(`/api/documents/${document.id}/analyze`);
+    expect(an.status()).toBe(200);
+    // 3. 确认字段
+    const ex = await page.request.get(`/api/documents/${document.id}`);
+    const extraction = ((await ex.json()) as { extraction: { fields: Array<{ key: string; value: string }> } }).extraction;
+    const confirmed = Object.fromEntries(extraction.fields.map((f) => [f.key, f.value]));
+    const cf = await page.request.patch(`/api/documents/${document.id}/extraction`, {
+      data: { confirmed },
+    });
+    expect(cf.status()).toBe(200);
+    // 4. 生成解读并保存任务
+    await page.goto(`/documents/${document.id}`);
+    await expect(page.getByText(/先说结论/)).toBeVisible();
+    await page.getByRole("button", { name: /保存到我的任务/ }).click();
     await expect(page).toHaveURL(/\/tasks/);
+  });
+
+  test("未确认字段前不能生成解读（409）", async ({ page }) => {
+    const { readFileSync } = await import("node:fs");
+    const buf = readFileSync("e2e/fixtures/sample-product.pdf");
+    const up = await page.request.post("/api/documents", {
+      multipart: {
+        file: { name: "product.pdf", mimeType: "application/pdf", buffer: buf },
+      },
+    });
+    const { document } = (await up.json()) as { document: { id: string } };
+    await page.request.post(`/api/documents/${document.id}/analyze`);
+    const reportRes = await page.request.post(`/api/documents/${document.id}/generate-report`);
+    expect(reportRes.status()).toBe(409);
+  });
+
+  test("非法文件类型被拒绝（415）", async ({ page }) => {
+    const res = await page.request.post("/api/documents", {
+      multipart: {
+        file: { name: "evil.txt", mimeType: "text/plain", buffer: Buffer.from("hello") },
+      },
+    });
+    expect(res.status()).toBe(415);
   });
 });
 

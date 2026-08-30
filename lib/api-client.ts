@@ -1,4 +1,13 @@
-import type { Asset, ClarificationQuestion, DiagnosisRecord, MoneyMap, PlanRecord, Task } from "@/lib/types";
+import type {
+  Asset,
+  ClarificationQuestion,
+  DiagnosisRecord,
+  ExtractionRecord,
+  MoneyMap,
+  PlanRecord,
+  ProductAnalysis,
+  Task,
+} from "@/lib/types";
 
 /**
  * 前端 API 客户端（阶段 3）
@@ -66,6 +75,63 @@ export async function generatePlan(sessionId: string) {
 
 export async function fetchPlan(planId: string) {
   return request<{ plan: PlanRecord }>(`/api/plans/${planId}`);
+}
+
+/* ============ 文档与产品解读（阶段 5） ============ */
+
+export type DocumentRecord = {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  status: string;
+  createdAt: string;
+};
+
+export async function uploadDocument(file: File): Promise<DocumentRecord> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch("/api/documents", { method: "POST", body: form });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(body?.error ?? `上传失败（${res.status}）`);
+  }
+  const data = (await res.json()) as { document: DocumentRecord };
+  return data.document;
+}
+
+export async function analyzeDocument(id: string): Promise<ExtractionRecord> {
+  const data = await request<{ extraction: ExtractionRecord }>(
+    `/api/documents/${id}/analyze`,
+    { method: "POST", body: JSON.stringify({}) },
+  );
+  return data.extraction;
+}
+
+export async function fetchDocument(id: string) {
+  return request<{
+    document: DocumentRecord;
+    extraction: ExtractionRecord | null;
+  }>(`/api/documents/${id}`);
+}
+
+export async function confirmExtraction(
+  id: string,
+  confirmed: Record<string, string>,
+): Promise<ExtractionRecord> {
+  const data = await request<{ extraction: ExtractionRecord }>(
+    `/api/documents/${id}/extraction`,
+    { method: "PATCH", body: JSON.stringify({ confirmed }) },
+  );
+  return data.extraction;
+}
+
+export async function generateDocumentReport(id: string): Promise<ProductAnalysis> {
+  const data = await request<{ report: ProductAnalysis }>(
+    `/api/documents/${id}/generate-report`,
+    { method: "POST", body: JSON.stringify({}) },
+  );
+  return data.report;
 }
 
 /* ============ 资金地图 ============ */

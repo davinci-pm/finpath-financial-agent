@@ -8,6 +8,8 @@ import {
 import type {
   Asset,
   DiagnosisRecord,
+  DocumentField,
+  ExtractionRecord,
   Goal,
   MoneyMap,
   PlanRecord,
@@ -169,6 +171,38 @@ export type CreatePlanInput = {
   rationale: string[];
 };
 
+export type DocumentRecord = {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  status: "uploading" | "analyzing" | "awaiting_confirmation" | "ready" | "failed";
+  createdAt: string;
+};
+
+export type CreateDocumentInput = {
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  buffer: Buffer;
+};
+
+/**
+ * 文档字段提取的 Schema 级结构（对齐手册 §11.2）
+ * 来源类型：file 文件原文 / ai AI 推断 / unknown 未识别
+ */
+export const DOCUMENT_FIELD_KEYS = [
+  "name",
+  "type",
+  "term",
+  "yield",
+  "risk",
+  "guaranteed",
+  "early_exit",
+  "fees",
+  "min_purchase",
+] as const;
+
 export interface FinPathRepository {
   /* 资金地图 */
   getMoneyMap(userId: string): Promise<MoneyMap>;
@@ -209,6 +243,27 @@ export interface FinPathRepository {
   /* 计划（阶段 4） */
   createPlan(userId: string, input: CreatePlanInput): Promise<PlanRecord>;
   getPlan(userId: string, id: string): Promise<PlanRecord | null>;
+
+  /* 文档（阶段 5） */
+  createDocument(userId: string, input: CreateDocumentInput): Promise<DocumentRecord>;
+  getDocument(userId: string, id: string): Promise<DocumentRecord | null>;
+  getDocumentBuffer(userId: string, id: string): Promise<Buffer | null>;
+  updateDocumentStatus(
+    userId: string,
+    id: string,
+    status: DocumentRecord["status"],
+  ): Promise<DocumentRecord | null>;
+  saveExtraction(
+    userId: string,
+    docId: string,
+    fields: DocumentField[],
+  ): Promise<ExtractionRecord>;
+  getExtraction(userId: string, docId: string): Promise<ExtractionRecord | null>;
+  confirmExtraction(
+    userId: string,
+    docId: string,
+    confirmed: Record<string, string>,
+  ): Promise<ExtractionRecord>;
 }
 
 /* ============ DemoRepository（无凭据回退，明确标记） ============ */
@@ -453,6 +508,99 @@ export class DemoRepository implements FinPathRepository {
 
   async getPlan(_userId: string, id: string): Promise<PlanRecord | null> {
     return this.plans.find((p) => p.id === id) ?? null;
+  }
+
+  /* ===== 文档（阶段 5） ===== */
+
+  private documents: DocumentRecord[] = [];
+  private extractions: ExtractionRecord[] = [];
+  private buffers = new Map<string, Buffer>();
+  private docSeq = 5000;
+
+  async createDocument(
+    _userId: string,
+    input: CreateDocumentInput,
+  ): Promise<DocumentRecord> {
+    const doc: DocumentRecord = {
+      id: `demo-doc-${++this.docSeq}`,
+      fileName: input.fileName,
+      mimeType: input.mimeType,
+      sizeBytes: input.sizeBytes,
+      status: "uploading",
+      createdAt: new Date().toISOString(),
+    };
+    this.documents.unshift(doc);
+    this.buffers.set(doc.id, input.buffer);
+    return doc;
+  }
+
+  async getDocument(_userId: string, id: string): Promise<DocumentRecord | null> {
+    return this.documents.find((d) => d.id === id) ?? null;
+  }
+
+  async getDocumentBuffer(_userId: string, id: string): Promise<Buffer | null> {
+    return this.buffers.get(id) ?? null;
+  }
+
+  async updateDocumentStatus(
+    _userId: string,
+    id: string,
+    status: DocumentRecord["status"],
+  ): Promise<DocumentRecord | null> {
+    const doc = this.documents.find((d) => d.id === id);
+    if (!doc) return null;
+    doc.status = status;
+    return doc;
+  }
+
+  async saveExtraction(
+    _userId: string,
+    docId: string,
+    fields: DocumentField[],
+  ): Promise<ExtractionRecord> {
+    const now = new Date().toISOString();
+    const existing = this.extractions.find((e) => e.documentId === docId);
+    if (existing) {
+      existing.fields = fields;
+      existing.status = "extracted";
+      existing.confirmedFields = {};
+      existing.updatedAt = now;
+      return existing;
+    }
+    const rec: ExtractionRecord = {
+      documentId: docId,
+      fields,
+      confirmedFields: {},
+      status: "extracted",
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.extractions.push(rec);
+    const doc = this.documents.find((d) => d.id === docId);
+    if (doc) doc.status = "awaiting_confirmation";
+    return rec;
+  }
+
+  async getExtraction(
+    _userId: string,
+    docId: string,
+  ): Promise<ExtractionRecord | null> {
+    return this.extractions.find((e) => e.documentId === docId) ?? null;
+  }
+
+  async confirmExtraction(
+    _userId: string,
+    docId: string,
+    confirmed: Record<string, string>,
+  ): Promise<ExtractionRecord> {
+    const rec = this.extractions.find((e) => e.documentId === docId);
+    if (!rec) throw new Error(`extraction 不存在: ${docId}`);
+    rec.confirmedFields = confirmed;
+    rec.status = "confirmed";
+    rec.updatedAt = new Date().toISOString();
+    const doc = this.documents.find((d) => d.id === docId);
+    if (doc) doc.status = "ready";
+    return rec;
   }
 }
 
@@ -835,6 +983,190 @@ export class SupabaseRepository implements FinPathRepository {
       rationale: r.constraints_json?.rationale ?? [],
       updatedAt: r.created_at,
     };
+  }
+
+  /* ===== 文档（阶段 5） ===== */
+
+  private async ensureBucket() {
+    // 幂等创建私有 bucket（忽略已存在错误）
+    await this.client.storage
+      .createBucket("documents", { public: false })
+      .catch(() => {});
+  }
+
+  async createDocument(
+    userId: string,
+    input: CreateDocumentInput,
+  ): Promise<DocumentRecord> {
+    const { data, error } = await this.client
+      .from("documents")
+      .insert({
+        user_id: userId,
+        file_name: input.fileName,
+        mime_type: input.mimeType,
+        size_bytes: input.sizeBytes,
+        status: "uploading",
+      })
+      .select()
+      .single();
+    if (error || !data) throw new Error(`createDocument 失败: ${error?.message}`);
+    const doc = data as unknown as {
+      id: string;
+      file_name: string;
+      mime_type: string;
+      size_bytes: number;
+      status: string;
+      created_at: string;
+    };
+    // 私有 Storage 保存（RLS：storage 对象归属 user）
+    await this.ensureBucket();
+    const path = `${userId}/${doc.id}/${input.fileName}`;
+    const { error: uploadError } = await this.client.storage
+      .from("documents")
+      .upload(path, input.buffer, { contentType: input.mimeType, upsert: false });
+    if (uploadError) throw new Error(`Storage 上传失败: ${uploadError.message}`);
+    const { data: updated } = await this.client
+      .from("documents")
+      .update({ storage_path: path })
+      .eq("id", doc.id)
+      .select()
+      .single();
+    return {
+      id: doc.id,
+      fileName: doc.file_name,
+      mimeType: doc.mime_type,
+      sizeBytes: doc.size_bytes,
+      status: (updated as { status: string } | null)?.status as DocumentRecord["status"] ?? "uploading",
+      createdAt: doc.created_at,
+    };
+  }
+
+  async getDocument(userId: string, id: string): Promise<DocumentRecord | null> {
+    const { data } = await this.client
+      .from("documents")
+      .select("*")
+      .eq("id", id)
+      .eq("user_id", userId)
+      .single();
+    if (!data) return null;
+    const r = data as unknown as {
+      id: string;
+      file_name: string;
+      mime_type: string;
+      size_bytes: number;
+      status: string;
+      created_at: string;
+    };
+    return {
+      id: r.id,
+      fileName: r.file_name,
+      mimeType: r.mime_type,
+      sizeBytes: r.size_bytes,
+      status: r.status as DocumentRecord["status"],
+      createdAt: r.created_at,
+    };
+  }
+
+  async getDocumentBuffer(userId: string, id: string): Promise<Buffer | null> {
+    const doc = await this.getDocument(userId, id);
+    if (!doc) return null;
+    const { data } = await this.client.storage.from("documents").list(`${userId}/${id}`);
+    const obj = data?.[0];
+    if (!obj) return null;
+    const { data: blob } = await this.client.storage
+      .from("documents")
+      .download(`${userId}/${id}/${obj.name}`);
+    if (!blob) return null;
+    return Buffer.from(await blob.arrayBuffer());
+  }
+
+  async updateDocumentStatus(
+    userId: string,
+    id: string,
+    status: DocumentRecord["status"],
+  ): Promise<DocumentRecord | null> {
+    const { data, error } = await this.client
+      .from("documents")
+      .update({ status })
+      .eq("id", id)
+      .eq("user_id", userId)
+      .select()
+      .single();
+    if (error) throw new Error(`updateDocumentStatus 失败: ${error.message}`);
+    return data ? this.getDocument(userId, id) : null;
+  }
+
+  async saveExtraction(
+    userId: string,
+    docId: string,
+    fields: DocumentField[],
+  ): Promise<ExtractionRecord> {
+    const now = new Date().toISOString();
+    const existing = await this.getExtraction(userId, docId);
+    if (existing) {
+      const { error } = await this.client
+        .from("document_extractions")
+        .update({ extracted_fields_json: fields as unknown as Record<string, unknown> })
+        .eq("document_id", docId)
+        .select()
+        .single();
+      if (error) throw new Error(`saveExtraction 更新失败: ${error.message}`);
+    } else {
+      const { error } = await this.client.from("document_extractions").insert({
+        document_id: docId,
+        extracted_fields_json: fields as unknown as Record<string, unknown>,
+      });
+      if (error) throw new Error(`saveExtraction 插入失败: ${error.message}`);
+    }
+    await this.updateDocumentStatus(userId, docId, "awaiting_confirmation");
+    const rec = await this.getExtraction(userId, docId);
+    if (!rec) throw new Error("extraction 读取失败");
+    void now;
+    return rec;
+  }
+
+  async getExtraction(
+    userId: string,
+    docId: string,
+  ): Promise<ExtractionRecord | null> {
+    const doc = await this.getDocument(userId, docId);
+    if (!doc) return null;
+    const { data } = await this.client
+      .from("document_extractions")
+      .select("*")
+      .eq("document_id", docId)
+      .single();
+    if (!data) return null;
+    const r = data as unknown as {
+      extracted_fields_json: DocumentField[];
+      confirmed_fields_json: Record<string, string>;
+      created_at: string;
+      updated_at: string;
+    };
+    return {
+      documentId: docId,
+      fields: r.extracted_fields_json ?? [],
+      confirmedFields: r.confirmed_fields_json ?? {},
+      status: Object.keys(r.confirmed_fields_json ?? {}).length > 0 ? "confirmed" : "extracted",
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    };
+  }
+
+  async confirmExtraction(
+    userId: string,
+    docId: string,
+    confirmed: Record<string, string>,
+  ): Promise<ExtractionRecord> {
+    const { error } = await this.client
+      .from("document_extractions")
+      .update({ confirmed_fields_json: confirmed })
+      .eq("document_id", docId);
+    if (error) throw new Error(`confirmExtraction 失败: ${error.message}`);
+    await this.updateDocumentStatus(userId, docId, "ready");
+    const rec = await this.getExtraction(userId, docId);
+    if (!rec) throw new Error("extraction 读取失败");
+    return rec;
   }
 }
 

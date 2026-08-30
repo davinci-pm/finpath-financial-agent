@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
@@ -81,6 +81,22 @@ export function MoneyMapView() {
 
   const hide = (v: string) => (hideAmounts ? "¥•••" : v);
 
+  // 资产分布聚合（hooks 必须在所有条件 return 之前调用）
+  const chartData = useMemo(() => {
+    const byCategory = new Map<string, number>();
+    for (const a of map?.assets ?? []) {
+      const v =
+        a.amountExact ??
+        Math.round(((a.amountMin ?? 0) + (a.amountMax ?? 0)) / 2);
+      byCategory.set(a.category, (byCategory.get(a.category) ?? 0) + v);
+    }
+    return Array.from(byCategory.entries()).map(([name, value], i) => ({
+      name,
+      value,
+      color: CHART_COLORS[i % CHART_COLORS.length],
+    }));
+  }, [map]);
+
   if (loading && !map) {
     return (
       <AppShell title="我的资金地图">
@@ -96,14 +112,6 @@ export function MoneyMapView() {
       </AppShell>
     );
   }
-
-  const chartData = (map?.assets ?? []).map((a, i) => ({
-    name: a.category,
-    value:
-      a.amountExact ??
-      Math.round(((a.amountMin ?? 0) + (a.amountMax ?? 0)) / 2),
-    color: CHART_COLORS[i % CHART_COLORS.length],
-  }));
 
   const inProgressTasks = tasks.filter((t) => t.status === "in_progress");
 

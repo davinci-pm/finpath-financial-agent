@@ -164,12 +164,15 @@ export type DocumentStatus =
   | "ready"
   | "failed";
 
+/** 提取字段：值 + 来源类型 + 置信度 + 页码 + 原文片段（手册 §11.2） */
 export type DocumentField = {
   key: string;
   label: string;
   value: string;
   source: "file" | "ai" | "unknown";
   confidence?: number; // 0-1
+  page?: number | null;
+  snippet?: string; // 原文片段
 };
 
 export type ProductDocument = {
@@ -179,6 +182,16 @@ export type ProductDocument = {
   sizeBytes: number;
   status: DocumentStatus;
   fields: DocumentField[];
+};
+
+/** 提取与确认记录（P04 确认前不得生成解读） */
+export type ExtractionRecord = {
+  documentId: string;
+  fields: DocumentField[];
+  confirmedFields: Record<string, string>;
+  status: "extracted" | "confirmed";
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type ProductAnalysis = {

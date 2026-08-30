@@ -10,14 +10,14 @@ export type DocumentFieldRowProps = {
   field: DocumentField;
 };
 
-/** P04 字段确认行：label + 可编辑值 + 来源状态 + 编辑入口 */
+/** P04 字段确认行：label + 可编辑值 + 来源状态 + 页码/原文/置信度 */
 export function DocumentFieldRow({ field }: DocumentFieldRowProps) {
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(field.value);
 
   return (
-    <div className="flex items-center justify-between gap-3 border-b border-border py-3 last:border-b-0">
-      <span className="w-[88px] shrink-0 text-sm text-muted-foreground">{field.label}</span>
+    <div className="flex items-start justify-between gap-3 border-b border-border py-3 last:border-b-0">
+      <span className="w-[88px] shrink-0 pt-0.5 text-sm text-muted-foreground">{field.label}</span>
       <div className="min-w-0 flex-1">
         {editing ? (
           <Input
@@ -32,6 +32,15 @@ export function DocumentFieldRow({ field }: DocumentFieldRowProps) {
         ) : (
           <span className="text-[15px] font-medium text-foreground">{value}</span>
         )}
+        {(field.page != null || field.snippet) && field.source !== "unknown" ? (
+          <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+            {field.page != null ? `第 ${field.page} 页 · ` : ""}
+            {field.confidence != null ? `置信度 ${Math.round(field.confidence * 100)}%` : ""}
+            {field.snippet ? (
+              <span className="ml-1 text-muted-foreground/80">“{field.snippet}”</span>
+            ) : null}
+          </p>
+        ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-2">
         <SourceBadge type={field.source} />
