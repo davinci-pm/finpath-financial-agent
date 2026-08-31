@@ -8,7 +8,7 @@ import {
 
 /**
  * POST /api/documents — 上传金融产品文件（multipart/form-data, 字段名 file）
- * 仅允许 PDF/PNG/JPG，默认 ≤20MB；私有 Storage（Supabase 模式）或内存（Demo 模式）。
+ * 仅允许 PDF/PNG/JPG，默认 ≤4MB；生产使用 Vercel Private Blob。
  */
 export async function POST(req: Request) {
   let form: FormData;

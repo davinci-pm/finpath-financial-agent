@@ -50,6 +50,6 @@ export function hasAcceptedFileSignature(buffer: Buffer, mimeType: string): bool
 }
 
 export function maxUploadBytes(): number {
-  const mb = Number(process.env.MAX_UPLOAD_MB ?? 20);
+  const mb = Number(process.env.MAX_UPLOAD_MB ?? 4);
   return mb * 1024 * 1024;
 }

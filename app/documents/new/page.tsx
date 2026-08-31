@@ -18,7 +18,7 @@ import type { DocumentField, ExtractionRecord } from "@/lib/types";
 
 /**
  * P04 金融产品上传与识别确认页
- * 真实链路：上传（≤20MB，PDF/PNG/JPG）→ DocumentAnalyzer 提取 → 用户确认 → 生成解读。
+ * 真实链路：上传（≤4MB，PDF/PNG/JPG）→ DocumentAnalyzer 提取 → 用户确认 → 生成解读。
  * 参考：P04-document-upload.png
  */
 export default function DocumentNewPage() {
@@ -47,9 +47,9 @@ export default function DocumentNewPage() {
         setError("仅支持 PDF、PNG、JPG 文件");
         return;
       }
-      if (file.size > 20 * 1024 * 1024) {
+      if (file.size > 4 * 1024 * 1024) {
         setPhase("failed");
-        setError("文件超过 20MB 限制");
+        setError("文件超过 4MB 限制");
         return;
       }
       try {

@@ -1,6 +1,9 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getSession } from "@/lib/server/auth/session";
-import { hasTosEnv, TosRepository } from "@/lib/server/tos-repository";
+import {
+  hasBlobEnv,
+  VercelBlobRepository,
+} from "@/lib/server/blob-repository";
 import {
   MOCK_GOALS,
   MOCK_LIABILITIES,
@@ -24,7 +27,7 @@ import type {
 
 /**
  * FinPath 数据仓库接口。
- * 实现：SupabaseRepository（生产）/ DemoRepository（无凭据时，明确标记）。
+ * 实现：VercelBlobRepository（Vercel 生产）/ SupabaseRepository / DemoRepository。
  */
 
 /* ============ 领域类型 ↔ DB 行类型 ============ */
@@ -1216,21 +1219,21 @@ export class SupabaseRepository implements FinPathRepository {
 /* ============ 工厂 ============ */
 
 let demoRepo: DemoRepository | null = null;
-let tosRepo: TosRepository | null = null;
+let blobRepo: VercelBlobRepository | null = null;
 
 export async function getRepository(): Promise<{
   repo: FinPathRepository;
   userId: string;
-  mode: "tos" | "supabase" | "demo";
+  mode: "blob" | "supabase" | "demo";
 }> {
   if (process.env.APP_ENV === "production") {
     const session = await getSession();
     if (!session) throw new AuthRequiredError();
-    if (!hasTosEnv()) {
-      throw new Error("生产环境必须配置 TOS 持久化存储");
+    if (!hasBlobEnv()) {
+      throw new Error("生产环境必须配置 Vercel Private Blob");
     }
-    tosRepo ??= new TosRepository();
-    return { repo: tosRepo, userId: session.userId, mode: "tos" };
+    blobRepo ??= new VercelBlobRepository();
+    return { repo: blobRepo, userId: session.userId, mode: "blob" };
   }
 
   const client = await createServerSupabaseClient();

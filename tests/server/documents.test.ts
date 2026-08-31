@@ -47,8 +47,8 @@ describe("文件类型与大小限制", () => {
     expect(isAcceptedFile("a.exe", "application/octet-stream")).toBe(false);
   });
 
-  it("默认 20MB 限制，可被 MAX_UPLOAD_MB 覆盖", () => {
-    expect(maxUploadBytes()).toBe(20 * 1024 * 1024);
+  it("默认 4MB 限制，可被 MAX_UPLOAD_MB 覆盖", () => {
+    expect(maxUploadBytes()).toBe(4 * 1024 * 1024);
     const prev = process.env.MAX_UPLOAD_MB;
     process.env.MAX_UPLOAD_MB = "5";
     expect(maxUploadBytes()).toBe(5 * 1024 * 1024);

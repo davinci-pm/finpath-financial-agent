@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { AuthRequiredError, getRepository } from "@/lib/server/repository";
 import { nextClarification, recognizeScenario } from "@/lib/server/diagnosis-service";
+import {
+  consumeDailyModelQuota,
+  ModelQuotaExceededError,
+} from "@/lib/server/ai/daily-quota";
 
 const CreateDiagnosisSchema = z.object({
   question: z.string().min(2).max(500),
@@ -28,6 +32,7 @@ export async function POST(req: Request) {
 
   try {
     const { repo, userId, mode } = await getRepository();
+    await consumeDailyModelQuota(userId, "text", 12);
     const { scenario } = await recognizeScenario(parsed.data.question);
     if (scenario.safetyFlags.length > 0) {
       return NextResponse.json(
@@ -67,6 +72,12 @@ export async function POST(req: Request) {
   } catch (e) {
     if (e instanceof AuthRequiredError) {
       return NextResponse.json({ error: "请先登录" }, { status: 401 });
+    }
+    if (e instanceof ModelQuotaExceededError) {
+      return NextResponse.json(
+        { error: "今日 AI 使用次数已达内测上限，请明天再试" },
+        { status: 429 },
+      );
     }
     console.error("[api/diagnosis] 创建失败:", e);
     return NextResponse.json(

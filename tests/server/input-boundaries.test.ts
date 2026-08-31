@@ -86,8 +86,8 @@ describe("文件上传输入边界", () => {
     expect(isAcceptedFile(fileName, mimeType)).toBe(expected);
   });
 
-  it("默认上传上限为 20MB", () => {
-    expect(maxUploadBytes()).toBe(20 * 1024 * 1024);
+  it("默认上传上限为 4MB", () => {
+    expect(maxUploadBytes()).toBe(4 * 1024 * 1024);
   });
 
   it("扩展名与 MIME 任一不匹配时都应拒绝，避免仅改名绕过校验", () => {

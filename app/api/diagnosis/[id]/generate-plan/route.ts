@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { AuthRequiredError, getRepository } from "@/lib/server/repository";
 import {
+  consumeDailyModelQuota,
+  ModelQuotaExceededError,
+} from "@/lib/server/ai/daily-quota";
+import {
   AIOutputError,
   generatePlan,
   nextQuestionKey,
@@ -27,11 +31,18 @@ export async function POST(_req: Request, { params }: Params) {
         { status: 409 },
       );
     }
+    await consumeDailyModelQuota(userId, "text", 12);
     const plan = await generatePlan(repo, userId, session);
     return NextResponse.json({ plan, mode }, { status: 201 });
   } catch (e) {
     if (e instanceof AuthRequiredError) {
       return NextResponse.json({ error: "请先登录" }, { status: 401 });
+    }
+    if (e instanceof ModelQuotaExceededError) {
+      return NextResponse.json(
+        { error: "今日 AI 使用次数已达内测上限，请明天再试" },
+        { status: 429 },
+      );
     }
     if (e instanceof UnsafeOutputError) {
       console.error("[api/generate-plan] 安全校验失败:", e.message);

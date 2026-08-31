@@ -1,7 +1,11 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
-import { TosClient, TosServerError } from "@volcengine/tos-sdk";
+import {
+  BlobPreconditionFailedError,
+  get,
+  put,
+} from "@vercel/blob";
 import type {
   Asset,
   DiagnosisRecord,
@@ -64,44 +68,22 @@ function assetAmount(asset: Asset): number {
   return 0;
 }
 
-function isStatus(error: unknown, ...statuses: number[]): boolean {
-  return error instanceof TosServerError && statuses.includes(error.statusCode);
-}
-
-function requiredEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) throw new Error(`缺少生产环境变量 ${name}`);
-  return value;
-}
-
-export function hasTosEnv(): boolean {
+export function hasBlobEnv(): boolean {
   return Boolean(
-    process.env.TOS_ACCESS_KEY_ID &&
-      process.env.TOS_SECRET_ACCESS_KEY &&
-      process.env.TOS_BUCKET,
+    process.env.BLOB_READ_WRITE_TOKEN ||
+      (process.env.VERCEL_OIDC_TOKEN && process.env.BLOB_STORE_ID),
   );
 }
 
-class TosStateStore {
-  private readonly client: TosClient;
-  private readonly bucket: string;
+class BlobStateStore {
   private readonly prefix: string;
   private readonly locks = new Map<string, Promise<void>>();
 
   constructor() {
-    const region = process.env.TOS_REGION ?? "cn-beijing";
-    this.bucket = requiredEnv("TOS_BUCKET");
-    this.prefix = (process.env.TOS_PREFIX ?? "finpath-beta").replace(/^\/+|\/+$/g, "");
-    this.client = new TosClient({
-      accessKeyId: requiredEnv("TOS_ACCESS_KEY_ID"),
-      accessKeySecret: requiredEnv("TOS_SECRET_ACCESS_KEY"),
-      region,
-      endpoint: process.env.TOS_ENDPOINT ?? `tos-${region}.volces.com`,
-      requestTimeout: 30_000,
-      connectionTimeout: 10_000,
-      maxRetryCount: 2,
-      enableCRC: true,
-    });
+    this.prefix = (process.env.BLOB_PREFIX ?? "finpath-beta").replace(
+      /^\/+|\/+$/g,
+      "",
+    );
   }
 
   private stateKey(userId: string): string {
@@ -113,31 +95,30 @@ class TosStateStore {
   }
 
   async load(userId: string): Promise<LoadedState> {
-    try {
-      const { data } = await this.client.getObjectV2({
-        bucket: this.bucket,
-        key: this.stateKey(userId),
-        dataType: "buffer",
-      });
-      const parsed = JSON.parse(data.content.toString("utf8")) as UserState;
-      if (parsed.version !== STATE_VERSION) {
-        throw new Error(`不支持的数据版本: ${String(parsed.version)}`);
-      }
-      return { state: parsed, etag: data.etag };
-    } catch (error) {
-      if (isStatus(error, 404)) return { state: emptyState(), etag: null };
-      throw error;
+    const result = await get(this.stateKey(userId), {
+      access: "private",
+      useCache: false,
+    });
+    if (!result || result.statusCode !== 200 || !result.stream) {
+      return { state: emptyState(), etag: null };
     }
+    const content = Buffer.from(await new Response(result.stream).arrayBuffer());
+    const parsed = JSON.parse(content.toString("utf8")) as UserState;
+    if (parsed.version !== STATE_VERSION) {
+      throw new Error(`不支持的数据版本: ${String(parsed.version)}`);
+    }
+    return { state: parsed, etag: result.blob.etag };
   }
 
   async save(userId: string, state: UserState, etag: string | null): Promise<void> {
     state.updatedAt = new Date().toISOString();
-    await this.client.putObject({
-      bucket: this.bucket,
-      key: this.stateKey(userId),
-      body: Buffer.from(JSON.stringify(state)),
+    await put(this.stateKey(userId), Buffer.from(JSON.stringify(state)), {
+      access: "private",
+      addRandomSuffix: false,
+      allowOverwrite: true,
       contentType: "application/json; charset=utf-8",
-      ...(etag ? { ifMatch: etag } : { forbidOverwrite: true }),
+      cacheControlMaxAge: 60,
+      ...(etag ? { ifMatch: etag } : {}),
     });
   }
 
@@ -158,11 +139,16 @@ class TosStateStore {
           await this.save(userId, state, etag);
           return result;
         } catch (error) {
-          if (isStatus(error, 409, 412) && attempt < MAX_WRITE_ATTEMPTS) continue;
+          if (
+            error instanceof BlobPreconditionFailedError &&
+            attempt < MAX_WRITE_ATTEMPTS
+          ) {
+            continue;
+          }
           throw error;
         }
       }
-      throw new Error("TOS 数据写入冲突，请重试");
+      throw new Error("Blob 数据写入冲突，请重试");
     });
   }
 
@@ -188,40 +174,34 @@ class TosStateStore {
     documentId: string,
     input: CreateDocumentInput,
   ): Promise<void> {
-    await this.client.putObject({
-      bucket: this.bucket,
-      key: this.documentKey(userId, documentId),
-      body: input.buffer,
-      contentLength: input.sizeBytes,
+    await put(this.documentKey(userId, documentId), input.buffer, {
+      access: "private",
+      addRandomSuffix: false,
+      allowOverwrite: false,
       contentType: input.mimeType,
-      forbidOverwrite: true,
-      meta: { originalfilename: encodeURIComponent(input.fileName) },
+      cacheControlMaxAge: 60,
+      maximumSizeInBytes: 4 * 1024 * 1024,
     });
   }
 
   async getDocument(userId: string, documentId: string): Promise<Buffer | null> {
-    try {
-      const { data } = await this.client.getObjectV2({
-        bucket: this.bucket,
-        key: this.documentKey(userId, documentId),
-        dataType: "buffer",
-      });
-      return data.content;
-    } catch (error) {
-      if (isStatus(error, 404)) return null;
-      throw error;
-    }
+    const result = await get(this.documentKey(userId, documentId), {
+      access: "private",
+      useCache: false,
+    });
+    if (!result || result.statusCode !== 200 || !result.stream) return null;
+    return Buffer.from(await new Response(result.stream).arrayBuffer());
   }
 }
 
-let sharedStore: TosStateStore | null = null;
+let sharedStore: BlobStateStore | null = null;
 
-function store(): TosStateStore {
-  sharedStore ??= new TosStateStore();
+function store(): BlobStateStore {
+  sharedStore ??= new BlobStateStore();
   return sharedStore;
 }
 
-export class TosRepository implements FinPathRepository {
+export class VercelBlobRepository implements FinPathRepository {
   async getMoneyMap(userId: string): Promise<MoneyMap> {
     return store().read(userId, (state) => {
       const assets = state.assets.filter((item) => item.kind === "asset");
