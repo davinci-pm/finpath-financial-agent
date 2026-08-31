@@ -10,7 +10,7 @@ export class DeepSeekProvider extends OpenAICompatibleProvider {
     super("deepseek", {
       apiKey: config.apiKey,
       baseUrl: config.baseUrl ?? "https://api.deepseek.com",
-      model: config.model ?? "deepseek-chat",
+      model: config.model ?? "deepseek-v4-flash",
     });
   }
 }

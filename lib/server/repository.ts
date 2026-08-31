@@ -1,4 +1,6 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { getSession } from "@/lib/server/auth/session";
+import { hasTosEnv, TosRepository } from "@/lib/server/tos-repository";
 import {
   MOCK_GOALS,
   MOCK_LIABILITIES,
@@ -1214,12 +1216,23 @@ export class SupabaseRepository implements FinPathRepository {
 /* ============ 工厂 ============ */
 
 let demoRepo: DemoRepository | null = null;
+let tosRepo: TosRepository | null = null;
 
 export async function getRepository(): Promise<{
   repo: FinPathRepository;
   userId: string;
-  mode: "supabase" | "demo";
+  mode: "tos" | "supabase" | "demo";
 }> {
+  if (process.env.APP_ENV === "production") {
+    const session = await getSession();
+    if (!session) throw new AuthRequiredError();
+    if (!hasTosEnv()) {
+      throw new Error("生产环境必须配置 TOS 持久化存储");
+    }
+    tosRepo ??= new TosRepository();
+    return { repo: tosRepo, userId: session.userId, mode: "tos" };
+  }
+
   const client = await createServerSupabaseClient();
   if (client) {
     const {

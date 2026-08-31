@@ -31,5 +31,8 @@ test-results/
 npm-debug.log*
 pnpm-debug.log*
 
+# 本地部署密钥与邀请码明文（永不提交）
+deployment-secrets/
+
 # OS
 .DS_Store

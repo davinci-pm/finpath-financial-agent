@@ -7,6 +7,7 @@ import {
   GraduationCap,
   Home,
   ListTodo,
+  LogOut,
   Map,
   Sparkles,
   type LucideIcon,
@@ -63,6 +64,23 @@ export function Sidebar() {
     );
   });
 
+  const logout = (mobile = false) => (
+    <form action="/api/auth/logout" method="post" className={mobile ? "contents" : undefined}>
+      <button
+        type="submit"
+        className={cn(
+          mobile
+            ? "flex min-w-0 flex-1 flex-col items-center gap-1 rounded-xl px-1 py-2 text-[11px] font-medium"
+            : "flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-[15px] font-medium",
+          "text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
+        )}
+      >
+        <LogOut className={mobile ? "size-4" : "size-[18px]"} aria-hidden />
+        <span className={mobile ? "truncate" : undefined}>退出</span>
+      </button>
+    </form>
+  );
+
   return (
     <>
     <aside className="sticky top-0 hidden h-screen w-[220px] shrink-0 flex-col border-r border-border bg-background md:flex">
@@ -86,7 +104,8 @@ export function Sidebar() {
       </nav>
 
       {/* 底部提示 */}
-      <div className="px-6 py-6">
+      <div className="space-y-3 px-3 py-6">
+        {logout()}
         <p className="text-xs leading-relaxed text-muted-foreground">
           行动教育建议，不构成具体投资推荐
         </p>
@@ -97,6 +116,7 @@ export function Sidebar() {
       className="fixed inset-x-0 bottom-0 z-50 flex border-t border-border bg-background/95 px-2 py-1 backdrop-blur md:hidden"
     >
       {links(true)}
+      {logout(true)}
     </nav>
     </>
   );

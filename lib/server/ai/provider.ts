@@ -33,6 +33,9 @@ export function createTextProvider(): ModelProvider {
     }
   }
 
+  if (process.env.APP_ENV === "production") {
+    throw new Error("生产环境未配置可用的文本模型");
+  }
   console.warn("[ai] 未配置可用文本模型 Key，回退 MockModelProvider（不消耗 Token）。");
   return new MockModelProvider();
 }
