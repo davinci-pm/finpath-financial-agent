@@ -23,6 +23,7 @@ import type {
   TaskStatus,
   TaskStep,
   TaskStepStatus,
+  Transaction,
 } from "@/lib/types";
 
 /**
@@ -192,6 +193,11 @@ export type CreateDocumentInput = {
   buffer: Buffer;
 };
 
+export type CreateTransactionInput = Pick<
+  Transaction,
+  "type" | "amount" | "category" | "description" | "date" | "source"
+>;
+
 /**
  * 文档字段提取的 Schema 级结构（对齐手册 §11.2）
  * 来源类型：file 文件原文 / ai AI 推断 / unknown 未识别
@@ -222,6 +228,18 @@ export interface FinPathRepository {
   ): Promise<Asset | null>;
   deleteAsset(userId: string, id: string): Promise<boolean>;
 
+  /* 现金流 */
+  listTransactions(userId: string, month?: string): Promise<Transaction[]>;
+  createTransaction(
+    userId: string,
+    input: CreateTransactionInput,
+  ): Promise<Transaction>;
+  createTransactions(
+    userId: string,
+    inputs: CreateTransactionInput[],
+  ): Promise<Transaction[]>;
+  deleteTransaction(userId: string, id: string): Promise<boolean>;
+
   /* 任务 */
   listTasks(userId: string): Promise<Task[]>;
   getTask(userId: string, id: string): Promise<Task | null>;
@@ -251,6 +269,7 @@ export interface FinPathRepository {
 
   /* 文档（阶段 5） */
   createDocument(userId: string, input: CreateDocumentInput): Promise<DocumentRecord>;
+  listDocuments(userId: string): Promise<DocumentRecord[]>;
   getDocument(userId: string, id: string): Promise<DocumentRecord | null>;
   getDocumentBuffer(userId: string, id: string): Promise<Buffer | null>;
   updateDocumentStatus(
@@ -287,6 +306,8 @@ export class DemoRepository implements FinPathRepository {
   private tasks: Task[] = structuredClone(MOCK_TASKS);
   private assetSeq = 1000;
   private taskSeq = 2000;
+  private transactions: Transaction[] = [];
+  private transactionSeq = 2500;
 
   constructor() {
     if (process.env.NODE_ENV !== "production") {
@@ -372,6 +393,38 @@ export class DemoRepository implements FinPathRepository {
     this.assets = this.assets.filter((a) => a.id !== id);
     this.liabilities = this.liabilities.filter((a) => a.id !== id);
     return this.assets.length + this.liabilities.length < before;
+  }
+
+  async listTransactions(_userId: string, month?: string): Promise<Transaction[]> {
+    return this.transactions
+      .filter((item) => !month || item.date.startsWith(month))
+      .sort((a, b) => b.date.localeCompare(a.date));
+  }
+
+  async createTransaction(
+    _userId: string,
+    input: CreateTransactionInput,
+  ): Promise<Transaction> {
+    const transaction: Transaction = {
+      id: `demo-transaction-${++this.transactionSeq}`,
+      ...input,
+      createdAt: new Date().toISOString(),
+    };
+    this.transactions.unshift(transaction);
+    return transaction;
+  }
+
+  async createTransactions(
+    userId: string,
+    inputs: CreateTransactionInput[],
+  ): Promise<Transaction[]> {
+    return Promise.all(inputs.map((input) => this.createTransaction(userId, input)));
+  }
+
+  async deleteTransaction(_userId: string, id: string): Promise<boolean> {
+    const before = this.transactions.length;
+    this.transactions = this.transactions.filter((item) => item.id !== id);
+    return this.transactions.length < before;
   }
 
   async listTasks(_userId: string): Promise<Task[]> {
@@ -556,6 +609,11 @@ export class DemoRepository implements FinPathRepository {
     return doc;
   }
 
+  async listDocuments(_userId: string): Promise<DocumentRecord[]> {
+    void _userId;
+    return [...this.documents].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
   async getDocument(_userId: string, id: string): Promise<DocumentRecord | null> {
     return this.documents.find((d) => d.id === id) ?? null;
   }
@@ -729,6 +787,62 @@ export class SupabaseRepository implements FinPathRepository {
       .eq("id", id)
       .eq("user_id", userId);
     if (error) throw new Error(`deleteAsset 失败: ${error.message}`);
+    return (count ?? 0) > 0;
+  }
+
+  async listTransactions(userId: string, month?: string): Promise<Transaction[]> {
+    let query = this.client
+      .from("transactions")
+      .select("*")
+      .eq("user_id", userId)
+      .order("date", { ascending: false });
+    if (month) {
+      const next = new Date(`${month}-01T00:00:00Z`);
+      next.setUTCMonth(next.getUTCMonth() + 1);
+      query = query.gte("date", `${month}-01`).lt("date", next.toISOString().slice(0, 10));
+    }
+    const { data, error } = await query;
+    if (error) throw new Error(`listTransactions 失败: ${error.message}`);
+    return ((data ?? []) as Array<Record<string, unknown>>).map((row) => ({
+      id: String(row.id),
+      type: row.type as Transaction["type"],
+      amount: Number(row.amount),
+      category: String(row.category),
+      description: String(row.description ?? ""),
+      date: String(row.date),
+      source: row.source as Transaction["source"],
+      createdAt: String(row.created_at),
+    }));
+  }
+
+  async createTransaction(
+    userId: string,
+    input: CreateTransactionInput,
+  ): Promise<Transaction> {
+    const [transaction] = await this.createTransactions(userId, [input]);
+    return transaction;
+  }
+
+  async createTransactions(
+    userId: string,
+    inputs: CreateTransactionInput[],
+  ): Promise<Transaction[]> {
+    const { data, error } = await this.client
+      .from("transactions")
+      .insert(inputs.map((input) => ({ user_id: userId, ...input })))
+      .select();
+    if (error) throw new Error(`createTransactions 失败: ${error.message}`);
+    const ids = new Set(((data ?? []) as Array<{ id: string }>).map((row) => row.id));
+    return (await this.listTransactions(userId)).filter((item) => ids.has(item.id));
+  }
+
+  async deleteTransaction(userId: string, id: string): Promise<boolean> {
+    const { count, error } = await this.client
+      .from("transactions")
+      .delete({ count: "exact" })
+      .eq("id", id)
+      .eq("user_id", userId);
+    if (error) throw new Error(`deleteTransaction 失败: ${error.message}`);
     return (count ?? 0) > 0;
   }
 
@@ -1085,6 +1199,23 @@ export class SupabaseRepository implements FinPathRepository {
       status: (updated as { status: string } | null)?.status as DocumentRecord["status"] ?? "uploading",
       createdAt: doc.created_at,
     };
+  }
+
+  async listDocuments(userId: string): Promise<DocumentRecord[]> {
+    const { data, error } = await this.client
+      .from("documents")
+      .select("*")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false });
+    if (error) throw new Error(`listDocuments 失败: ${error.message}`);
+    return ((data ?? []) as Array<Record<string, unknown>>).map((row) => ({
+      id: String(row.id),
+      fileName: String(row.file_name),
+      mimeType: String(row.mime_type),
+      sizeBytes: Number(row.size_bytes),
+      status: row.status as DocumentRecord["status"],
+      createdAt: String(row.created_at),
+    }));
   }
 
   async getDocument(userId: string, id: string): Promise<DocumentRecord | null> {

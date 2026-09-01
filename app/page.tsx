@@ -40,7 +40,7 @@ export default function HomePage() {
         </nav>
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="sm" asChild>
-            <Link href="/money-map">进入工作台</Link>
+            <Link href="/workspace">进入工作台</Link>
           </Button>
           <Button size="sm" asChild>
             <Link href="/ask">免费问一问</Link>
@@ -56,11 +56,11 @@ export default function HomePage() {
             把金融知识，变成下一步行动
           </span>
           <h1 className="page-title mt-4 max-w-[560px] text-foreground">
-            有什么和钱有关的问题，直接告诉我。
+            不只回答问题，<br />还帮你把钱的决定算清楚。
           </h1>
           <p className="mt-3 max-w-[520px] text-[17px] leading-relaxed text-muted-foreground">
-            从闲钱安排、看懂产品，到办卡换汇，AI
-            帮你理清条件、比较路径、列出下一步。
+            资产、现金流、合同原文和行动任务放在同一个工作台；
+            先用规则计算，再让 AI 解释，最后持续跟踪结果。
           </p>
 
           {/* AI 输入卡（Enter 发送，空输入不可提交） */}
@@ -103,15 +103,17 @@ export default function HomePage() {
         <section className="hidden lg:block">
           <Card className="rounded-2xl bg-card shadow-card">
             <CardContent className="p-7">
-              <h2 className="section-title text-foreground">行动路径预览</h2>
+              <span className="inline-flex rounded-full bg-primary-soft px-3 py-1 text-xs font-medium text-primary">不是聊天机器人</span>
+              <h2 className="section-title mt-4 text-foreground">一次决策，留下完整证据链</h2>
               <p className="mt-2 text-[15px] leading-relaxed text-muted-foreground">
                 不问收益，先问你的用途、期限和风险承受能力，再把一个模糊问题变成一步步可执行清单。
               </p>
               <ol className="mt-6 space-y-5">
                 {[
-                  { step: "01", title: "先确认用途", desc: "这笔钱什么时候用、准备做什么" },
-                  { step: "02", title: "比较可选路径", desc: "流动性、费用、风险，逐一对照" },
-                  { step: "03", title: "生成行动清单", desc: "每一步都能执行、可保存、可持续" },
+                  { step: "01", title: "先看全局数据", desc: "资产、负债和现金流共同参与判断" },
+                  { step: "02", title: "推演决定后果", desc: "调整参数，即时看到未来现金缺口" },
+                  { step: "03", title: "核对文件证据", desc: "合同字段带页码、原文和置信度" },
+                  { step: "04", title: "落成行动任务", desc: "结论可以执行、保存并持续复盘" },
                 ].map((s) => (
                   <li key={s.step} className="flex gap-4">
                     <span className="font-number text-lg font-bold text-primary">
@@ -134,7 +136,7 @@ export default function HomePage() {
       {/* 底部信任说明 */}
       <footer className="border-t border-border">
         <div className="mx-auto flex max-w-[1200px] flex-wrap items-center justify-center gap-x-10 gap-y-2 px-8 py-5">
-          {["结果附来源与更新时间", "不收集银行卡密码", "先看懂，再决定"].map((t) => (
+          {["规则结果可复算", "结果附来源与更新时间", "不收集银行卡密码", "先看懂，再决定"].map((t) => (
             <span
               key={t}
               className="flex items-center gap-2 text-sm text-muted-foreground"

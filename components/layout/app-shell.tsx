@@ -38,7 +38,7 @@ export function AppShell({
           {title || description ? (
             <PageHeader title={title} description={description} actions={actions} />
           ) : null}
-          <div className={cn("mt-6", className)}>{children}</div>
+          <div className={cn("page-enter mt-6", className)}>{children}</div>
         </div>
       </main>
     </div>

@@ -4,11 +4,13 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Compass,
+  Gauge,
   GraduationCap,
   Home,
   ListTodo,
   LogOut,
   Map,
+  ReceiptText,
   Sparkles,
   type LucideIcon,
 } from "lucide-react";
@@ -23,6 +25,8 @@ export type NavItem = {
 /** 统一侧栏顺序：首页、问 AI、资金地图、学习、我的任务（手册 §6.2 / 验收清单 §1） */
 export const NAV_ITEMS: NavItem[] = [
   { href: "/", label: "首页", icon: Home },
+  { href: "/workspace", label: "决策工作台", icon: Gauge },
+  { href: "/cashflow", label: "月度现金流", icon: ReceiptText },
   { href: "/ask", label: "问 AI", icon: Sparkles },
   { href: "/money-map", label: "资金地图", icon: Map },
   { href: "/learn", label: "学习", icon: GraduationCap },
@@ -37,7 +41,9 @@ export function Sidebar() {
     return pathname === href || pathname.startsWith(`${href}/`);
   };
 
-  const links = (mobile = false) => NAV_ITEMS.map((item) => {
+  const links = (mobile = false) => (mobile
+    ? NAV_ITEMS.filter((item) => ["/workspace", "/cashflow", "/ask", "/tasks"].includes(item.href))
+    : NAV_ITEMS).map((item) => {
     const active = isActive(item.href);
     const Icon = item.icon;
     return (
@@ -49,10 +55,10 @@ export function Sidebar() {
           mobile
             ? "flex min-w-0 flex-1 flex-col items-center gap-1 rounded-xl px-1 py-2 text-[11px] font-medium"
             : "flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-[15px] font-medium",
-          "outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+          "outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-ring",
           active
-            ? "bg-primary-soft text-foreground"
-            : "text-muted-foreground hover:bg-muted hover:text-foreground",
+            ? "bg-primary-soft text-foreground shadow-[inset_3px_0_0_var(--primary)]"
+            : "text-muted-foreground hover:translate-x-0.5 hover:bg-muted hover:text-foreground",
         )}
       >
         <Icon

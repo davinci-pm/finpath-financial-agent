@@ -49,6 +49,7 @@
 
   /* 阴影 */
   --shadow-card: 0 8px 28px rgba(24, 49, 45, 0.05);
+  --shadow-card-hover: 0 16px 42px rgba(24, 49, 45, 0.1);
 
   /* 图表（仅资产结构/进度，非行情） */
   --chart-1: #276b5d;
@@ -149,5 +150,52 @@
 
   .text-helper {
     @apply text-sm text-muted-foreground;
+  }
+
+  ::selection {
+    background: var(--primary-soft);
+    color: var(--foreground);
+  }
+}
+
+@layer components {
+  .interactive-card {
+    transition: transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      box-shadow 220ms ease, border-color 220ms ease;
+  }
+
+  .interactive-card:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-card-hover);
+    border-color: color-mix(in srgb, var(--primary) 22%, var(--border));
+  }
+
+  .page-enter {
+    animation: page-enter 360ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+
+  .route-loading-bar {
+    animation: route-loading 1.2s ease-in-out infinite;
+    transform-origin: left;
+  }
+}
+
+@keyframes page-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes route-loading {
+  0% { transform: scaleX(0); opacity: 0.4; }
+  55% { transform: scaleX(0.75); opacity: 1; }
+  100% { transform: scaleX(1); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

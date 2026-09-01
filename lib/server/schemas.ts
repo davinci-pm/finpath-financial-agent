@@ -52,3 +52,24 @@ export const CreateTaskSchema = z.object({
 export const UpdateTaskStatusSchema = z.object({
   status: z.enum(["in_progress", "pending", "completed"]),
 });
+
+export const TransactionInputSchema = z.object({
+  type: z.enum(["income", "expense"]),
+  amount: z.number().int().positive().max(1_000_000_000),
+  category: z.string().trim().min(1).max(40),
+  description: z.string().trim().max(120).default(""),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "日期格式应为 YYYY-MM-DD"),
+  source: z.enum(["manual", "csv"]).default("manual"),
+});
+
+export const TransactionBatchSchema = z.object({
+  transactions: z.array(TransactionInputSchema).min(1).max(500),
+});
+
+export const ScenarioInputSchema = z.object({
+  initialCash: z.number().int().min(0).max(10_000_000_000),
+  monthlyIncome: z.number().int().min(0).max(1_000_000_000),
+  monthlyExpense: z.number().int().min(0).max(1_000_000_000),
+  oneTimeExpense: z.number().int().min(0).max(10_000_000_000),
+  months: z.number().int().min(1).max(120),
+});

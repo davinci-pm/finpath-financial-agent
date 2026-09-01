@@ -7,6 +7,11 @@ import type {
   PlanRecord,
   ProductAnalysis,
   Task,
+  CashflowSummary,
+  FinancialHealth,
+  ScenarioInput,
+  ScenarioResult,
+  Transaction,
 } from "@/lib/types";
 
 /**
@@ -75,6 +80,49 @@ export async function generatePlan(sessionId: string) {
 
 export async function fetchPlan(planId: string) {
   return request<{ plan: PlanRecord }>(`/api/plans/${planId}`);
+}
+
+/* ============ 决策工作台 ============ */
+
+export async function fetchFinancialHealth(month: string) {
+  return request<{ health: FinancialHealth; cashflow: CashflowSummary }>(
+    `/api/financial-health?month=${encodeURIComponent(month)}`,
+  );
+}
+
+export async function fetchTransactions(month: string) {
+  return request<{ transactions: Transaction[] }>(
+    `/api/transactions?month=${encodeURIComponent(month)}`,
+  );
+}
+
+export async function createTransaction(
+  input: Omit<Transaction, "id" | "createdAt">,
+) {
+  return request<{ transactions: Transaction[] }>("/api/transactions", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function importTransactions(
+  transactions: Array<Omit<Transaction, "id" | "createdAt">>,
+) {
+  return request<{ transactions: Transaction[] }>("/api/transactions", {
+    method: "POST",
+    body: JSON.stringify({ transactions }),
+  });
+}
+
+export async function deleteTransaction(id: string) {
+  return request<{ ok: true }>(`/api/transactions/${id}`, { method: "DELETE" });
+}
+
+export async function runScenario(input: ScenarioInput) {
+  return request<{ result: ScenarioResult }>("/api/scenarios", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
 }
 
 /* ============ 文档与产品解读（阶段 5） ============ */

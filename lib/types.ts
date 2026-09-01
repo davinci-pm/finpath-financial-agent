@@ -120,6 +120,65 @@ export type MoneyMap = {
   updatedAt: string;
 };
 
+/* ============ 现金流与财务体检 ============ */
+
+export type TransactionType = "income" | "expense";
+export type TransactionSource = "manual" | "csv";
+
+export type Transaction = {
+  id: string;
+  type: TransactionType;
+  /** 人民币元，使用整数避免浮点误差 */
+  amount: number;
+  category: string;
+  description: string;
+  date: string;
+  source: TransactionSource;
+  createdAt: string;
+};
+
+export type CashflowSummary = {
+  month: string;
+  income: number;
+  expense: number;
+  balance: number;
+  savingsRate: number;
+  byCategory: Array<{ category: string; amount: number; percentage: number }>;
+};
+
+export type HealthMetric = {
+  key: "cashflow" | "emergency" | "debt" | "data";
+  label: string;
+  score: number;
+  status: "good" | "watch" | "risk";
+  explanation: string;
+};
+
+export type FinancialHealth = {
+  score: number;
+  level: "稳健" | "需关注" | "待改善";
+  metrics: HealthMetric[];
+  nextAction: { title: string; description: string; href: string };
+  calculatedAt: string;
+};
+
+export type ScenarioInput = {
+  initialCash: number;
+  monthlyIncome: number;
+  monthlyExpense: number;
+  oneTimeExpense: number;
+  months: number;
+};
+
+export type ScenarioResult = {
+  endingCash: number;
+  lowestCash: number;
+  monthlyBalance: number;
+  sustainable: boolean;
+  runwayMonths: number | null;
+  points: Array<{ month: number; balance: number }>;
+};
+
 /* ============ 任务（P10 / P11） ============ */
 
 export type TaskStatus = "in_progress" | "pending" | "completed";

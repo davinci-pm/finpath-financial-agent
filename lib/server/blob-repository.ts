@@ -18,12 +18,14 @@ import type {
   Task,
   TaskStatus,
   TaskStep,
+  Transaction,
 } from "@/lib/types";
 import type {
   CreateAssetInput,
   CreateDocumentInput,
   CreatePlanInput,
   CreateTaskInput,
+  CreateTransactionInput,
   DocumentRecord,
   FinPathRepository,
 } from "@/lib/server/repository";
@@ -41,6 +43,7 @@ type UserState = {
   plans: PlanRecord[];
   documents: DocumentRecord[];
   extractions: ExtractionRecord[];
+  transactions: Transaction[];
   updatedAt: string;
 };
 
@@ -56,6 +59,7 @@ function emptyState(): UserState {
     plans: [],
     documents: [],
     extractions: [],
+    transactions: [],
     updatedAt: new Date().toISOString(),
   };
 }
@@ -107,6 +111,8 @@ class BlobStateStore {
     if (parsed.version !== STATE_VERSION) {
       throw new Error(`不支持的数据版本: ${String(parsed.version)}`);
     }
+    // V1 使用兼容扩展：旧状态首次读取时补齐新增集合。
+    parsed.transactions ??= [];
     return { state: parsed, etag: result.blob.etag };
   }
 
@@ -275,6 +281,53 @@ export class VercelBlobRepository implements FinPathRepository {
       state.assets = state.assets.filter((item) => item.id !== id);
       state.goals = state.goals.filter((item) => item.id !== id);
       return state.assets.length < before;
+    });
+  }
+
+  async listTransactions(userId: string, month?: string): Promise<Transaction[]> {
+    return store().read(userId, (state) =>
+      state.transactions
+        .filter((item) => !month || item.date.startsWith(month))
+        .sort((a, b) => b.date.localeCompare(a.date)),
+    );
+  }
+
+  async createTransaction(
+    userId: string,
+    input: CreateTransactionInput,
+  ): Promise<Transaction> {
+    return store().update(userId, (state) => {
+      const transaction: Transaction = {
+        id: randomUUID(),
+        ...input,
+        createdAt: new Date().toISOString(),
+      };
+      state.transactions.unshift(transaction);
+      return transaction;
+    });
+  }
+
+  async createTransactions(
+    userId: string,
+    inputs: CreateTransactionInput[],
+  ): Promise<Transaction[]> {
+    return store().update(userId, (state) => {
+      const now = new Date().toISOString();
+      const transactions = inputs.map((input) => ({
+        id: randomUUID(),
+        ...input,
+        createdAt: now,
+      }));
+      state.transactions.unshift(...transactions);
+      return transactions;
+    });
+  }
+
+  async deleteTransaction(userId: string, id: string): Promise<boolean> {
+    return store().update(userId, (state) => {
+      const before = state.transactions.length;
+      state.transactions = state.transactions.filter((item) => item.id !== id);
+      return state.transactions.length < before;
     });
   }
 
@@ -466,6 +519,12 @@ export class VercelBlobRepository implements FinPathRepository {
       state.documents.unshift(document);
       return document;
     });
+  }
+
+  async listDocuments(userId: string): Promise<DocumentRecord[]> {
+    return store().read(userId, (state) =>
+      [...state.documents].sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    );
   }
 
   async getDocument(userId: string, id: string): Promise<DocumentRecord | null> {
