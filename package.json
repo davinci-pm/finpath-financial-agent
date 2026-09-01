@@ -2,6 +2,7 @@
   "name": "finpath",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "description": "FinPath MVP — 把模糊金融问题变成有条件、有证据、有风险说明、可执行、可持续跟踪的行动路径",
   "scripts": {
     "dev": "next dev",
